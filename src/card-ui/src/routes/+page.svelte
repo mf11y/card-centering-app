@@ -669,6 +669,14 @@ function drawImageTriangle(
 
 			applyReturnedCorners(result.corners);
 
+			autoZoomToCorners = true;
+			frozenZoom = null;
+
+			segmentationResult = {
+				ok: true,
+				refine_score: result.refine_score ?? null
+			};
+
 			segmentationResult = {
 				ok: true,
 				refine_score: result.refine_score ?? null
@@ -879,8 +887,8 @@ function drawImageTriangle(
 		];
 
 		// more breathing room
-		const padX = 40;
-		const padY = 50;
+		const padX = 85;
+		const padY = 105;
 
 		const minX = Math.max(0, Math.min(...xs) - padX);
 		const maxX = Math.min(displayedImageRect.width, Math.max(...xs) + padX);
@@ -890,19 +898,66 @@ function drawImageTriangle(
 		const boxWidth = Math.max(1, maxX - minX);
 		const boxHeight = Math.max(1, maxY - minY);
 
-		const scale = Math.min(
+		const rawScale = Math.min(
 			displayedImageRect.width / boxWidth,
-			displayedImageRect.height / boxHeight,
-			1.5
+			displayedImageRect.height / boxHeight
 		);
+
+		const widthFrac = boxWidth / Math.max(displayedImageRect.width, 1);
+		const heightFrac = boxHeight / Math.max(displayedImageRect.height, 1);
+		const coverFrac = Math.max(widthFrac, heightFrac);
+
+		let maxZoom = 1.0;
+
+		if (coverFrac < 0.45) {
+			maxZoom = 1.8;
+		} else if (coverFrac < 0.6) {
+			maxZoom = 1.45;
+		} else if (coverFrac < 0.75) {
+			maxZoom = 1.2;
+		} else {
+			maxZoom = 1.0;
+		}
+
+		let scale = Math.max(1, Math.min(rawScale, maxZoom));
 
 		const centerX = (minX + maxX) / 2;
 		const centerY = (minY + maxY) / 2;
 
+		// reserve room for arrow handles
+		const handleMargin = 28;
+
+		for (let i = 0; i < 8; i++) {
+			const txTry = displayedImageRect.width / 2 - centerX * scale;
+			const tyTry = displayedImageRect.height / 2 - centerY * scale;
+
+			const screenPts = [
+				{ x: xs[0] * scale + txTry, y: ys[0] * scale + tyTry },
+				{ x: xs[1] * scale + txTry, y: ys[1] * scale + tyTry },
+				{ x: xs[2] * scale + txTry, y: ys[2] * scale + tyTry },
+				{ x: xs[3] * scale + txTry, y: ys[3] * scale + tyTry }
+			];
+
+			const allVisible = screenPts.every(
+				(p) =>
+					p.x >= handleMargin &&
+					p.x <= displayedImageRect.width - handleMargin &&
+					p.y >= handleMargin &&
+					p.y <= displayedImageRect.height - handleMargin
+			);
+
+			if (allVisible) {
+				return { scale, tx: txTry, ty: tyTry };
+			}
+
+			scale *= 0.92;
+			if (scale <= 1.001) break;
+		}
+
 		const tx = displayedImageRect.width / 2 - centerX * scale;
 		const ty = displayedImageRect.height / 2 - centerY * scale;
 
-		return { scale, tx, ty };
+		return { scale: Math.max(1, scale), tx, ty };
 	}
 
 	function formatPct(value: number) {
