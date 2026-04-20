@@ -270,6 +270,9 @@
 		const file = input.files?.[0];
 		if (!file) return;
 		loadFile(file);
+		setTimeout(() => {
+			runSegmentationInBrowser();
+		}, 0);
 	}
 
 	function handleDrop(event: DragEvent) {
@@ -1426,18 +1429,69 @@
 
 								<div class="grid grid-cols-2 gap-3">
 									<button
-										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
+										class={`rounded-lg border px-3 py-2 text-sm transition ${
+											imageUrl && !isSegmenting
+												? 'col-span-2 w-full border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+												: 'w-full border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										type="button"
+										onclick={() => {
+											if (imageUrl) {
+												if (imageUrl) URL.revokeObjectURL(imageUrl);
+												if (warpedImageUrl?.startsWith('blob:'))
+													URL.revokeObjectURL(warpedImageUrl);
+												if (segmentationMaskUrl?.startsWith('blob:'))
+													URL.revokeObjectURL(segmentationMaskUrl);
+
+												imageFile = null;
+												imageUrl = '';
+												warpedImageUrl = '';
+												segmentationMaskUrl = '';
+												segmentationError = '';
+												segmentationResult = null;
+												activeCorner = null;
+												activeGuide = null;
+												frozenZoom = null;
+												frozenStage = null;
+												autoZoomToCorners = false;
+												zoomLevel = 1;
+												pendingDetection = false;
+
+												corners = {
+													topLeft: { x: 0, y: 0 },
+													topRight: { x: 0, y: 0 },
+													bottomLeft: { x: 0, y: 0 },
+													bottomRight: { x: 0, y: 0 }
+												};
+
+												const input = document.getElementById(
+													'image-upload'
+												) as HTMLInputElement | null;
+												if (input) input.value = '';
+											}
+										}}
 									>
 										Reset
 									</button>
 
-									<button
-										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
-										onclick={runSegmentationInBrowser}
-										disabled={!imageFile || isSegmenting}
-									>
-										{isSegmenting ? 'Running...' : 'Re-detect'}
-									</button>
+									{#if !imageUrl || isSegmenting}
+										<button
+											class={`w-full rounded-lg border px-3 py-2 text-sm transition ${
+												isSegmenting
+													? 'border-blue-400 bg-zinc-800 text-blue-300 animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.7)]'
+													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+											}`}
+											type="button"
+											onclick={() => {
+												if (!isSegmenting) {
+													document.getElementById('image-upload')?.click();
+												}
+											}}
+											disabled={isSegmenting}
+										>
+											{isSegmenting ? 'Running...' : 'Upload'}
+										</button>
+									{/if}
 								</div>
 
 								<div class="grid grid-cols-3 gap-3">
@@ -1589,7 +1643,14 @@
 								type="file"
 								accept="image/*"
 								class="hidden"
-								onchange={handleFileChange}
+								onchange={(e) => {
+									handleFileChange(e);
+									setTimeout(() => {
+										if (imageFile && imageUrl) {
+											runSegmentationInBrowser();
+										}
+									}, 0);
+								}}
 								disabled={!!imageUrl}
 							/>
 
