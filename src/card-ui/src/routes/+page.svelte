@@ -448,7 +448,7 @@
 			const formData = new FormData();
 			formData.append('file', imageFile);
 
-			const response = await fetch(`${API_BASE}/infer-json`, {
+			const response = await fetch(`${API_BASE}/warp-from-corners`, {
 				method: 'POST',
 				body: formData
 			});
