@@ -79,6 +79,8 @@
 
 	let warpBoxSize = $state({ width: 0, height: 0 });
 
+	let segmentationMaskUrl = $state('');
+
 	const GUIDE_STEP = 1;
 
 	let pageZoom = $state(1);
@@ -176,6 +178,37 @@
 		autoZoomToCorners = false;
 	}
 
+	function setSegmentationMaskFromResult(result: any) {
+		if (segmentationMaskUrl?.startsWith('blob:')) {
+			URL.revokeObjectURL(segmentationMaskUrl);
+		}
+		segmentationMaskUrl = '';
+
+		// supports:
+		// result.mask_data_url
+		// result.mask_base64
+		// result.mask_png_base64
+		// result.mask_url
+		if (typeof result?.mask_data_url === 'string' && result.mask_data_url.startsWith('data:image/')) {
+			segmentationMaskUrl = result.mask_data_url;
+			return;
+		}
+
+		if (typeof result?.mask_base64 === 'string' && result.mask_base64.length > 0) {
+			segmentationMaskUrl = `data:image/png;base64,${result.mask_base64}`;
+			return;
+		}
+
+		if (typeof result?.mask_png_base64 === 'string' && result.mask_png_base64.length > 0) {
+			segmentationMaskUrl = `data:image/png;base64,${result.mask_png_base64}`;
+			return;
+		}
+
+		if (typeof result?.mask_url === 'string' && result.mask_url.length > 0) {
+			segmentationMaskUrl = result.mask_url;
+		}
+	}
+
 	function zoomIn() {
 		applyZoomDelta(1);
 	}
@@ -199,6 +232,9 @@
 	if (warpedImageUrl?.startsWith('blob:')) {
 		URL.revokeObjectURL(warpedImageUrl);
 	}
+	if (segmentationMaskUrl?.startsWith('blob:')) {
+	URL.revokeObjectURL(segmentationMaskUrl);
+	}
 	});
 
 	function loadFile(file: File) {
@@ -213,6 +249,12 @@
 		if (warpedImageUrl?.startsWith('blob:')) {
 			URL.revokeObjectURL(warpedImageUrl);
 		}
+
+		if (segmentationMaskUrl?.startsWith('blob:')) {
+			URL.revokeObjectURL(segmentationMaskUrl);
+		}
+		segmentationMaskUrl = '';
+
 		warpedImageUrl = '';
 
 		segmentationError = '';
@@ -734,7 +776,59 @@ function drawImageTriangle(
 	ctx.restore();
 }
 
+	async function compressImageForApiIfNeeded(file: File, maxBytes = 300_000): Promise<File> {
+		if (file.size <= maxBytes) return file;
+
+		const img = new Image();
+		const objectUrl = URL.createObjectURL(file);
+
+		try {
+			await new Promise<void>((resolve, reject) => {
+				img.onload = () => resolve();
+				img.onerror = () => reject(new Error('Failed to load image for compression'));
+				img.src = objectUrl;
+			});
+
+			const canvas = document.createElement('canvas');
+			const ctx = canvas.getContext('2d');
+
+			if (!ctx) return file;
+
+			const width = img.naturalWidth;
+			const height = img.naturalHeight;
+
+			canvas.width = width;
+			canvas.height = height;
+
+			ctx.drawImage(img, 0, 0, width, height);
+
+			let quality = 0.9;
+			let blob: Blob | null = null;
+
+			for (let i = 0; i < 8; i++) {
+				blob = await new Promise<Blob | null>((resolve) => {
+					canvas.toBlob(resolve, 'image/jpeg', quality);
+				});
+
+				if (!blob) return file;
+				if (blob.size <= maxBytes) break;
+
+				quality -= 0.08;
+			}
+
+			if (!blob) return file;
+
+			return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), {
+				type: 'image/jpeg'
+			});
+		} finally {
+			URL.revokeObjectURL(objectUrl);
+		}
+	}
+
 	async function runSegmentationInBrowser() {
+
+		console.log('API_BASE:', API_BASE);
 
 		if (!imageFile || !imageEl) return;
 
@@ -743,8 +837,9 @@ function drawImageTriangle(
 		segmentationResult = null;
 
 		try {
+			const apiFile = await compressImageForApiIfNeeded(imageFile);
 			const formData = new FormData();
-			formData.append('file', imageFile);
+			formData.append('file', apiFile);
 
 			const response = await fetch(`${API_BASE}/infer-json`, {
 				method: 'POST',
@@ -757,6 +852,8 @@ function drawImageTriangle(
 			}
 
 			const result = await response.json();
+
+			setSegmentationMaskFromResult(result);
 
 			console.log('API corners raw', result.corners);
 
@@ -777,28 +874,25 @@ function drawImageTriangle(
 			if (zoomLevel === 1) {
 				autoZoomToCorners = true;
 				frozenZoom = null;
-			}
 
-			// wait one frame so corners/rendered image rect are updated, then freeze
-			requestAnimationFrame(() => {
-				const z = computeZoomMetrics();
+				requestAnimationFrame(() => {
+					const z = computeZoomMetrics();
 
-				const naturalWidth = imageEl?.naturalWidth || 1;
-				const naturalHeight = imageEl?.naturalHeight || 1;
+					const naturalWidth = imageEl?.naturalWidth || 1;
+					const naturalHeight = imageEl?.naturalHeight || 1;
 
-				const centerX =
-					(corners.topLeft.x +
-						corners.topRight.x +
-						corners.bottomRight.x +
-						corners.bottomLeft.x) / 4;
+					const centerX =
+						(corners.topLeft.x +
+							corners.topRight.x +
+							corners.bottomRight.x +
+							corners.bottomLeft.x) / 4;
 
-				const centerY =
-					(corners.topLeft.y +
-						corners.topRight.y +
-						corners.bottomRight.y +
-						corners.bottomLeft.y) / 4;
+					const centerY =
+						(corners.topLeft.y +
+							corners.topRight.y +
+							corners.bottomRight.y +
+							corners.bottomLeft.y) / 4;
 
-				if (zoomLevel === 1) {
 					frozenZoom = {
 						scale: z.scale,
 						centerXNorm: centerX / naturalWidth,
@@ -809,10 +903,14 @@ function drawImageTriangle(
 						width: displayedImageRect.width,
 						height: displayedImageRect.height
 					};
-				} else {
-					frozenStage = null;
-				}
-			});
+				});
+			} else {
+				autoZoomToCorners = false;
+				frozenZoom = null;
+				frozenStage = null;
+			}
+
+			// wait one frame so corners/rendered image rect are updated, then freeze
 
 			segmentationResult = {
 				ok: true,

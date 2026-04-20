@@ -9,6 +9,12 @@ import io
 import cv2
 import numpy as np
 import json
+import base64
+
+import logging
+
+logger = logging.getLogger("uvicorn.error")
+
 
 app = FastAPI(title="Card API")
 
@@ -25,6 +31,7 @@ def health():
     return {"status": "ok"}
 
 @app.post("/api/infer-json")
+
 async def infer_json(file: UploadFile = File(...)):
     contents = await file.read()
     result = run_inference_service(contents)
@@ -32,10 +39,44 @@ async def infer_json(file: UploadFile = File(...)):
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
 
+
+    mask = result.get("mask")
+    mask_base64 = None
+
+    if mask is not None:
+        # ensure uint8
+        if mask.dtype != np.uint8:
+            mask = mask.astype(np.uint8)
+
+        # normalize 0/1 → 0/255
+        if mask.max() <= 1:
+            mask = mask * 255
+
+        # --- COLORIZE ---
+        # create a red overlay (you can change this)
+        color_mask = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+
+        # red mask (BGR in OpenCV)
+        color_mask[:, :, 2] = mask  # red channel
+
+        # optional: soften edges a bit
+        # color_mask = cv2.GaussianBlur(color_mask, (5,5), 0)
+
+        ok, buf = cv2.imencode(".png", color_mask)
+        if ok:
+            mask_base64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+
+    print(
+        "mask debug:",
+        None if mask is None else (mask.shape, mask.dtype, mask.min(), mask.max()),
+        flush=True
+    )
+
     return {
         "ok": True,
         "corners": result["corners"],
         "refine_score": result.get("refine_score"),
+        "mask_base64": mask_base64,
     }
 
 @app.post("/api/infer-image")
