@@ -107,6 +107,7 @@
 		imageUrl = URL.createObjectURL(file);
 
 		setTimeout(() => {
+			runWarpPreview();
 			runSegmentation();
 		}, 50);
 	}
@@ -191,6 +192,32 @@
 		displayedImageRect = { x, y, width, height };
 	}
 
+	function runWarpPreview() {
+		if (!imageEl) return;
+
+		const backendCorners = getCornersForBackend();
+		if (!backendCorners) return;
+
+		const corners: [Point, Point, Point, Point] = [
+			{ x: backendCorners[0].x, y: backendCorners[0].y }, // top-left
+			{ x: backendCorners[1].x, y: backendCorners[1].y }, // top-right
+			{ x: backendCorners[2].x, y: backendCorners[2].y }, // bottom-right
+			{ x: backendCorners[3].x, y: backendCorners[3].y } // bottom-left
+		];
+
+		try {
+			const nextUrl = warpImageToDataUrl(imageEl, corners);
+
+			if (warpedImageUrl?.startsWith('blob:')) {
+				URL.revokeObjectURL(warpedImageUrl);
+			}
+
+			warpedImageUrl = nextUrl;
+		} catch (error) {
+			console.error('Frontend warp failed:', error);
+		}
+	}
+
 	function updateSize() {
 		if (!containerEl) return;
 		const rect = containerEl.getBoundingClientRect();
@@ -226,9 +253,8 @@
 
 	$effect(() => {
 		if (!imageFile) return;
-		if (!segmentationResult?.ok) return;
+		if (!imageEl) return;
 
-		// touch corners so this effect depends on them
 		corners.topLeft.x;
 		corners.topLeft.y;
 		corners.topRight.x;
@@ -435,6 +461,91 @@
 		corners = mapped;
 	}
 
+type Point = { x: number; y: number };
+
+function distance(a: Point, b: Point) {
+	return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+
+function computeWarpOutputSize(
+	tl: Point,
+	tr: Point,
+	br: Point,
+	bl: Point,
+	targetAspect = 63 / 88
+) {
+	const widthTop = distance(tl, tr);
+	const widthBottom = distance(bl, br);
+	const heightLeft = distance(tl, bl);
+	const heightRight = distance(tr, br);
+
+	const measuredWidth = Math.max(widthTop, widthBottom);
+	const measuredHeight = Math.max(heightLeft, heightRight);
+
+	let width = measuredWidth;
+	let height = width / targetAspect;
+
+	if (height < measuredHeight) {
+		height = measuredHeight;
+		width = height * targetAspect;
+	}
+
+	return {
+		width: Math.max(1, Math.round(width)),
+		height: Math.max(1, Math.round(height))
+	};
+}
+
+function drawImageTriangle(
+	ctx: CanvasRenderingContext2D,
+	image: CanvasImageSource,
+	s0: Point,
+	s1: Point,
+	s2: Point,
+	d0: Point,
+	d1: Point,
+	d2: Point
+) {
+	ctx.save();
+
+	ctx.beginPath();
+	ctx.moveTo(d0.x, d0.y);
+	ctx.lineTo(d1.x, d1.y);
+	ctx.lineTo(d2.x, d2.y);
+	ctx.closePath();
+	ctx.clip();
+
+	const sx1 = s1.x - s0.x;
+	const sy1 = s1.y - s0.y;
+	const sx2 = s2.x - s0.x;
+	const sy2 = s2.y - s0.y;
+
+	const dx1 = d1.x - d0.x;
+	const dy1 = d1.y - d0.y;
+	const dx2 = d2.x - d0.x;
+	const dy2 = d2.y - d0.y;
+
+	const det = sx1 * sy2 - sy1 * sx2;
+	if (Math.abs(det) < 1e-8) {
+		ctx.restore();
+		return;
+	}
+
+	const a = (dx1 * sy2 - dx2 * sy1) / det;
+	const b = (dy1 * sy2 - dy2 * sy1) / det;
+	const c = (dx2 * sx1 - dx1 * sx2) / det;
+	const d = (dy2 * sx1 - dy1 * sx2) / det;
+	const e = d0.x - a * s0.x - c * s0.y;
+	const f = d0.y - b * s0.x - d * s0.y;
+
+	ctx.setTransform(a, b, c, d, e, f);
+	ctx.drawImage(image, 0, 0);
+
+	ctx.restore();
+}
+
+
 	async function runSegmentation() {
 		if (!imageFile) return;
 
@@ -537,37 +648,8 @@
 		];
 	}
 
-	async function runWarpPreview() {
-		if (!imageFile) return;
+	
 
-		const backendCorners = getCornersForBackend();
-		if (!backendCorners) return;
-
-		try {
-			const formData = new FormData();
-			formData.append('file', imageFile);
-			formData.append('corners_json', JSON.stringify(backendCorners));
-
-			const response = await fetch(`${API_BASE}/warp-from-corners`, {
-				method: 'POST',
-				body: formData
-			});
-
-			if (!response.ok) {
-				throw new Error(`Warp failed: ${response.status}`);
-			}
-
-			const blob = await response.blob();
-
-			if (warpedImageUrl) {
-				URL.revokeObjectURL(warpedImageUrl);
-			}
-
-			warpedImageUrl = URL.createObjectURL(blob);
-		} catch (error) {
-			console.error(error);
-		}
-	}
 	function toggleGuideActive(guideKey: GuideKey) {
 		activeGuide = guideKey;
 		activeCorner = null;
@@ -771,6 +853,223 @@
 			leftPct,
 			rightPct
 		};
+	}
+
+function solveLinearSystem8x8(A: number[][], b: number[]) {
+	const n = 8;
+	const M = A.map((row, i) => [...row, b[i]]);
+
+	for (let col = 0; col < n; col++) {
+		let pivotRow = col;
+		let maxAbs = Math.abs(M[col][col]);
+
+		for (let r = col + 1; r < n; r++) {
+			const v = Math.abs(M[r][col]);
+			if (v > maxAbs) {
+				maxAbs = v;
+				pivotRow = r;
+			}
+		}
+
+		if (maxAbs < 1e-12) {
+			throw new Error('Homography solve failed: singular matrix');
+		}
+
+		if (pivotRow !== col) {
+			[M[col], M[pivotRow]] = [M[pivotRow], M[col]];
+		}
+
+		const pivot = M[col][col];
+		for (let c = col; c <= n; c++) {
+			M[col][c] /= pivot;
+		}
+
+		for (let r = 0; r < n; r++) {
+			if (r === col) continue;
+			const factor = M[r][col];
+			for (let c = col; c <= n; c++) {
+				M[r][c] -= factor * M[col][c];
+			}
+		}
+	}
+
+	return M.map((row) => row[n]);
+}
+
+function computeHomography(
+	src: [Point, Point, Point, Point],
+	dst: [Point, Point, Point, Point]
+) {
+	const A: number[][] = [];
+	const b: number[] = [];
+
+	for (let i = 0; i < 4; i++) {
+		const { x, y } = src[i];
+		const { x: u, y: v } = dst[i];
+
+		A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+		b.push(u);
+
+		A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+		b.push(v);
+	}
+
+	const [h11, h12, h13, h21, h22, h23, h31, h32] = solveLinearSystem8x8(A, b);
+
+	return [
+		[h11, h12, h13],
+		[h21, h22, h23],
+		[h31, h32, 1]
+	];
+}
+
+function invertHomography(H: number[][]) {
+	const [
+		[a, b, c],
+		[d, e, f],
+		[g, h, i]
+	] = H;
+
+	const A = e * i - f * h;
+	const B = -(d * i - f * g);
+	const C = d * h - e * g;
+	const D = -(b * i - c * h);
+	const E = a * i - c * g;
+	const F = -(a * h - b * g);
+	const G = b * f - c * e;
+	const Hc = -(a * f - c * d);
+	const I = a * e - b * d;
+
+	const det = a * A + b * B + c * C;
+	if (Math.abs(det) < 1e-12) {
+		throw new Error('Homography invert failed: singular matrix');
+	}
+
+	return [
+		[A / det, D / det, G / det],
+		[B / det, E / det, Hc / det],
+		[C / det, F / det, I / det]
+	];
+}
+
+function applyHomography(H: number[][], x: number, y: number): Point {
+	const denom = H[2][0] * x + H[2][1] * y + H[2][2];
+	if (Math.abs(denom) < 1e-12) {
+		return { x: 0, y: 0 };
+	}
+
+	return {
+		x: (H[0][0] * x + H[0][1] * y + H[0][2]) / denom,
+		y: (H[1][0] * x + H[1][1] * y + H[1][2]) / denom
+	};
+}
+
+function sampleBilinear(
+	src: Uint8ClampedArray,
+	sw: number,
+	sh: number,
+	x: number,
+	y: number
+) {
+	const x0 = Math.floor(x);
+	const y0 = Math.floor(y);
+	const x1 = Math.min(x0 + 1, sw - 1);
+	const y1 = Math.min(y0 + 1, sh - 1);
+
+	const dx = x - x0;
+	const dy = y - y0;
+
+	const idx00 = (y0 * sw + x0) * 4;
+	const idx10 = (y0 * sw + x1) * 4;
+	const idx01 = (y1 * sw + x0) * 4;
+	const idx11 = (y1 * sw + x1) * 4;
+
+	const out = [0, 0, 0, 0];
+
+	for (let k = 0; k < 4; k++) {
+		const top = src[idx00 + k] * (1 - dx) + src[idx10 + k] * dx;
+		const bottom = src[idx01 + k] * (1 - dx) + src[idx11 + k] * dx;
+		out[k] = top * (1 - dy) + bottom * dy;
+	}
+
+	return out;
+}
+
+	function warpImageToDataUrl(
+		image: HTMLImageElement,
+		corners: [Point, Point, Point, Point]
+	) {
+		const [tl, tr, br, bl] = corners;
+
+		const { width: outWidth, height: outHeight } = computeWarpOutputSize(tl, tr, br, bl);
+
+		const srcCanvas = document.createElement('canvas');
+		srcCanvas.width = image.naturalWidth;
+		srcCanvas.height = image.naturalHeight;
+
+		const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+		if (!srcCtx) {
+			throw new Error('Could not create source canvas');
+		}
+		srcCtx.drawImage(image, 0, 0);
+
+		const srcImage = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+		const srcData = srcImage.data;
+		const sw = srcCanvas.width;
+		const sh = srcCanvas.height;
+
+		const outCanvas = document.createElement('canvas');
+		outCanvas.width = outWidth;
+		outCanvas.height = outHeight;
+
+		const outCtx = outCanvas.getContext('2d');
+		if (!outCtx) {
+			throw new Error('Could not create output canvas');
+		}
+
+		const outImage = outCtx.createImageData(outWidth, outHeight);
+		const outData = outImage.data;
+
+		const dstQuad: [Point, Point, Point, Point] = [
+			{ x: 0, y: 0 },
+			{ x: outWidth - 1, y: 0 },
+			{ x: outWidth - 1, y: outHeight - 1 },
+			{ x: 0, y: outHeight - 1 }
+		];
+
+		// map source quad -> destination rect, then invert for sampling
+		const H = computeHomography(corners, dstQuad);
+		const Hinv = invertHomography(H);
+
+		for (let y = 0; y < outHeight; y++) {
+			for (let x = 0; x < outWidth; x++) {
+				const srcPt = applyHomography(Hinv, x + 0.5, y + 0.5);
+
+				const outIdx = (y * outWidth + x) * 4;
+
+				if (
+					srcPt.x < 0 ||
+					srcPt.x >= sw - 1 ||
+					srcPt.y < 0 ||
+					srcPt.y >= sh - 1
+				) {
+					outData[outIdx + 0] = 0;
+					outData[outIdx + 1] = 0;
+					outData[outIdx + 2] = 0;
+					outData[outIdx + 3] = 255;
+					continue;
+				}
+
+				const [r, g, b, a] = sampleBilinear(srcData, sw, sh, srcPt.x, srcPt.y);
+				outData[outIdx + 0] = Math.round(r);
+				outData[outIdx + 1] = Math.round(g);
+				outData[outIdx + 2] = Math.round(b);
+				outData[outIdx + 3] = Math.round(a);
+			}
+		}
+
+		outCtx.putImageData(outImage, 0, 0);
+		return outCanvas.toDataURL('image/jpeg', 0.95);
 	}
 </script>
 
