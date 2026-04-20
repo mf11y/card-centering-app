@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { flip } from 'svelte/animate';
 
 	const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000/api';
 
@@ -81,6 +82,69 @@
 
 	let segmentationMaskUrl = $state('');
 
+	let showUploadButton = $state(true);
+	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	$effect(() => {
+		const shouldShow = !imageReadyForControls || isSegmenting;
+
+		if (shouldShow) {
+			if (hideUploadTimeout) {
+				clearTimeout(hideUploadTimeout);
+				hideUploadTimeout = null;
+			}
+			showUploadButton = true;
+			return;
+		}
+
+		if (hideUploadTimeout) clearTimeout(hideUploadTimeout);
+
+		hideUploadTimeout = setTimeout(() => {
+			showUploadButton = false;
+			hideUploadTimeout = null;
+		}, 220);
+
+		return () => {
+			if (hideUploadTimeout) {
+				clearTimeout(hideUploadTimeout);
+				hideUploadTimeout = null;
+			}
+		};
+	});
+
+	function resetHandler() {
+		if (imageUrl) {
+			if (imageUrl) URL.revokeObjectURL(imageUrl);
+			if (warpedImageUrl?.startsWith('blob:')) URL.revokeObjectURL(warpedImageUrl);
+			if (segmentationMaskUrl?.startsWith('blob:')) URL.revokeObjectURL(segmentationMaskUrl);
+
+			imageFile = null;
+			imageUrl = '';
+			warpedImageUrl = '';
+			segmentationMaskUrl = '';
+			segmentationError = '';
+			segmentationResult = null;
+			activeCorner = null;
+			activeGuide = null;
+			frozenZoom = null;
+			frozenStage = null;
+			autoZoomToCorners = false;
+			zoomLevel = 1;
+			pendingDetection = false;
+			imageReadyForControls = false;
+
+			corners = {
+				topLeft: { x: 0, y: 0 },
+				topRight: { x: 0, y: 0 },
+				bottomLeft: { x: 0, y: 0 },
+				bottomRight: { x: 0, y: 0 }
+			};
+
+			const input = document.getElementById('image-upload') as HTMLInputElement | null;
+			if (input) input.value = '';
+		}
+	}
+
 	function snapGuideDisplayPx(value: number) {
 		return Math.round(value * 2) / 2;
 	}
@@ -134,6 +198,8 @@
 	let frozenStage = $state<{ width: number; height: number } | null>(null);
 
 	let zoomLevel = $state(1);
+
+	let imageReadyForControls = $state(false);
 
 	const ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
 
@@ -263,6 +329,8 @@
 		frozenStage = null;
 
 		pendingDetection = true;
+
+		imageReadyForControls = false;
 	}
 
 	function handleFileChange(event: Event) {
@@ -270,9 +338,6 @@
 		const file = input.files?.[0];
 		if (!file) return;
 		loadFile(file);
-		setTimeout(() => {
-			runSegmentationInBrowser();
-		}, 0);
 	}
 
 	function handleDrop(event: DragEvent) {
@@ -899,6 +964,7 @@
 			console.error(error);
 		} finally {
 			isSegmenting = false;
+			imageReadyForControls = true;
 		}
 	}
 
@@ -1427,59 +1493,35 @@
 									</select>
 								</div>
 
-								<div class="grid grid-cols-2 gap-3">
-									<button
-										class={`rounded-lg border px-3 py-2 text-sm transition ${
-											imageUrl && !isSegmenting
-												? 'col-span-2 w-full border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
-												: 'w-full border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+								<div class="flex gap-3">
+									<div
+										class={`min-w-0 overflow-hidden transition-all duration-500 ease-out ${
+											showUploadButton ? 'basis-1/2 max-w-full' : 'basis-full max-w-full'
 										}`}
-										type="button"
-										onclick={() => {
-											if (imageUrl) {
-												if (imageUrl) URL.revokeObjectURL(imageUrl);
-												if (warpedImageUrl?.startsWith('blob:'))
-													URL.revokeObjectURL(warpedImageUrl);
-												if (segmentationMaskUrl?.startsWith('blob:'))
-													URL.revokeObjectURL(segmentationMaskUrl);
-
-												imageFile = null;
-												imageUrl = '';
-												warpedImageUrl = '';
-												segmentationMaskUrl = '';
-												segmentationError = '';
-												segmentationResult = null;
-												activeCorner = null;
-												activeGuide = null;
-												frozenZoom = null;
-												frozenStage = null;
-												autoZoomToCorners = false;
-												zoomLevel = 1;
-												pendingDetection = false;
-
-												corners = {
-													topLeft: { x: 0, y: 0 },
-													topRight: { x: 0, y: 0 },
-													bottomLeft: { x: 0, y: 0 },
-													bottomRight: { x: 0, y: 0 }
-												};
-
-												const input = document.getElementById(
-													'image-upload'
-												) as HTMLInputElement | null;
-												if (input) input.value = '';
-											}
-										}}
 									>
-										Reset
-									</button>
+										<button
+											class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
+											type="button"
+											onclick={resetHandler}
+										>
+											Reset
+										</button>
+									</div>
 
-									{#if !imageUrl || isSegmenting}
+									<div
+										class={`min-w-0 overflow-hidden transition-all duration-500 ease-out ${
+											showUploadButton
+												? 'basis-1/2 max-w-full opacity-100'
+												: 'basis-0 max-w-0 opacity-0'
+										}`}
+									>
 										<button
 											class={`w-full rounded-lg border px-3 py-2 text-sm transition ${
 												isSegmenting
 													? 'border-blue-400 bg-zinc-800 text-blue-300 animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.7)]'
-													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+													: !imageUrl
+														? 'border-cyan-400 bg-zinc-900 text-cyan-300 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.5)] hover:bg-zinc-800'
+														: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
 											}`}
 											type="button"
 											onclick={() => {
@@ -1487,11 +1529,11 @@
 													document.getElementById('image-upload')?.click();
 												}
 											}}
-											disabled={isSegmenting}
+											disabled={isSegmenting || !showUploadButton}
 										>
 											{isSegmenting ? 'Running...' : 'Upload'}
 										</button>
-									{/if}
+									</div>
 								</div>
 
 								<div class="grid grid-cols-3 gap-3">
@@ -1703,12 +1745,16 @@
 															class="block h-full w-full object-contain"
 															draggable="false"
 															ondragstart={(e) => e.preventDefault()}
-															onload={() => {
+															onload={async () => {
 																updateSize();
+
 																if (pendingDetection) {
 																	pendingDetection = false;
-																	runSegmentationInBrowser();
+																	await runSegmentationInBrowser();
 																}
+																setTimeout(() => {
+																	imageReadyForControls = true;
+																}, 10);
 															}}
 														/>
 
