@@ -33,9 +33,6 @@ def get_best_segmentation_mask(result, image_shape):
 
 
 def get_segmentation_mask(img):
-    """
-    Main entry point: runs model + returns best mask.
-    """
     model = get_model()
 
     results = model.predict(
@@ -49,7 +46,12 @@ def get_segmentation_mask(img):
         return None
 
     res = results[0]
-    return get_best_segmentation_mask(res, img.shape)
+    mask = get_best_segmentation_mask(res, img.shape)
+
+    if mask is not None:
+        cv2.imwrite("debug_best_mask.png", mask)
+
+    return mask
 
 def get_segmentation_result(img):
     """

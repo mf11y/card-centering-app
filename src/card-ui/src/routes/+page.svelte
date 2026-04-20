@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 
-	const API_BASE = 'https://card-centering-api.onrender.com/api';
+	const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000/api';
 
 	const cornerPads = [
 		{ id: 'topLeft', label: 'Top Left' },
@@ -98,6 +98,16 @@
 		activeCorner = null;
 	}
 
+	let pendingDetection = $state(false);
+
+	onDestroy(() => {
+	if (imageUrl) URL.revokeObjectURL(imageUrl);
+
+	if (warpedImageUrl?.startsWith('blob:')) {
+		URL.revokeObjectURL(warpedImageUrl);
+	}
+	});
+
 	function loadFile(file: File) {
 		if (!file.type.startsWith('image/')) return;
 
@@ -106,10 +116,16 @@
 		if (imageUrl) URL.revokeObjectURL(imageUrl);
 		imageUrl = URL.createObjectURL(file);
 
-		setTimeout(() => {
-			runWarpPreview();
-			runSegmentation();
-		}, 50);
+
+		if (warpedImageUrl?.startsWith('blob:')) {
+			URL.revokeObjectURL(warpedImageUrl);
+		}
+		warpedImageUrl = '';
+
+		segmentationError = '';
+		segmentationResult = null;
+
+		pendingDetection = true;
 	}
 
 	function handleFileChange(event: Event) {
@@ -192,18 +208,67 @@
 		displayedImageRect = { x, y, width, height };
 	}
 
+	function orderCorners(corners: Point[]): [Point, Point, Point, Point] {
+		// compute center
+		const cx = corners.reduce((sum, p) => sum + p.x, 0) / 4;
+		const cy = corners.reduce((sum, p) => sum + p.y, 0) / 4;
+
+		// sort by angle around center
+		const sorted = [...corners].sort((a, b) => {
+			const angleA = Math.atan2(a.y - cy, a.x - cx);
+			const angleB = Math.atan2(b.y - cy, b.x - cx);
+			return angleA - angleB;
+		});
+
+		// now assign based on position
+		let tl = sorted[0];
+		let tr = sorted[1];
+		let br = sorted[2];
+		let bl = sorted[3];
+
+		// fix orientation (ensure TL is actually top-left)
+		const byY = [...sorted].sort((a, b) => a.y - b.y);
+		const top = byY.slice(0, 2);
+		const bottom = byY.slice(2, 4);
+
+		const [topLeft, topRight] = top.sort((a, b) => a.x - b.x);
+		const [bottomLeft, bottomRight] = bottom.sort((a, b) => a.x - b.x);
+
+		return [topLeft, topRight, bottomRight, bottomLeft];
+	}
+
+	function ensureClockwise(
+		corners: [Point, Point, Point, Point]
+	): [Point, Point, Point, Point] {
+		const [tl, tr, br, bl] = corners;
+
+		const cross =
+			(tr.x - tl.x) * (bl.y - tl.y) -
+			(tr.y - tl.y) * (bl.x - tl.x);
+
+		// if cross < 0 → points are flipped → fix it
+		if (cross < 0) {
+			return [tl, bl, br, tr]; // swap orientation
+		}
+
+		return corners;
+	}
+
 	function runWarpPreview() {
 		if (!imageEl) return;
 
 		const backendCorners = getCornersForBackend();
 		if (!backendCorners) return;
 
-		const corners: [Point, Point, Point, Point] = [
-			{ x: backendCorners[0].x, y: backendCorners[0].y }, // top-left
-			{ x: backendCorners[1].x, y: backendCorners[1].y }, // top-right
-			{ x: backendCorners[2].x, y: backendCorners[2].y }, // bottom-right
-			{ x: backendCorners[3].x, y: backendCorners[3].y } // bottom-left
+		const unordered = [
+			{ x: backendCorners[0].x, y: backendCorners[0].y },
+			{ x: backendCorners[1].x, y: backendCorners[1].y },
+			{ x: backendCorners[2].x, y: backendCorners[2].y },
+			{ x: backendCorners[3].x, y: backendCorners[3].y }
 		];
+
+		let corners = orderCorners(unordered);
+		corners = ensureClockwise(corners);
 
 		try {
 			const nextUrl = warpImageToDataUrl(imageEl, corners);
@@ -444,8 +509,8 @@
 			const yInContainer =
 				displayedImageRect.y + (corner.y / naturalHeight) * displayedImageRect.height;
 
-			const xPct = (xInContainer / containerSize.width) * 100;
-			const yPct = (yInContainer / containerSize.height) * 100;
+			const xPct = Math.max(0, Math.min(100, (xInContainer / containerSize.width) * 100));
+			const yPct = Math.max(0, Math.min(100, (yInContainer / containerSize.height) * 100));
 
 			if (corner.id === 'top-left') {
 				mapped.topLeft = { x: xPct, y: yPct };
@@ -458,44 +523,63 @@
 			}
 		}
 		console.log('Mapped corners for overlay:', mapped);
+
+		console.log('applyReturnedCorners', {
+		returnedCorners,
+		mapped,
+		containerSize,
+		displayedImageRect,
+		naturalWidth,
+		naturalHeight
+});
 		corners = mapped;
 	}
 
-type Point = { x: number; y: number };
+	type Point = { x: number; y: number };
 
-function distance(a: Point, b: Point) {
-	return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-
-function computeWarpOutputSize(
-	tl: Point,
-	tr: Point,
-	br: Point,
-	bl: Point,
-	targetAspect = 63 / 88
-) {
-	const widthTop = distance(tl, tr);
-	const widthBottom = distance(bl, br);
-	const heightLeft = distance(tl, bl);
-	const heightRight = distance(tr, br);
-
-	const measuredWidth = Math.max(widthTop, widthBottom);
-	const measuredHeight = Math.max(heightLeft, heightRight);
-
-	let width = measuredWidth;
-	let height = width / targetAspect;
-
-	if (height < measuredHeight) {
-		height = measuredHeight;
-		width = height * targetAspect;
+	function distance(a: Point, b: Point) {
+		return Math.hypot(b.x - a.x, b.y - a.y);
 	}
 
-	return {
-		width: Math.max(1, Math.round(width)),
-		height: Math.max(1, Math.round(height))
-	};
-}
+
+	function computeWarpOutputSize(
+		tl: Point,
+		tr: Point,
+		br: Point,
+		bl: Point,
+		targetAspect = 63 / 88
+	) {
+		const widthTop = distance(tl, tr);
+		const widthBottom = distance(bl, br);
+		const heightLeft = distance(tl, bl);
+		const heightRight = distance(tr, br);
+
+		const width = (widthTop + widthBottom) / 2;
+		const height = (heightLeft + heightRight) / 2;
+
+		let outW = width;
+		let outH = height;
+
+		const currentAspect = width / height;
+
+		if (!Number.isFinite(currentAspect) || !Number.isFinite(width) || !Number.isFinite(height)) {
+			return { width: 360, height: 504 };
+		}
+
+		if (currentAspect > targetAspect) {
+			outH = outW / targetAspect;
+		} else {
+			outW = outH * targetAspect;
+		}
+
+		const safeWidth = Math.max(1, Math.round(outW));
+		const safeHeight = Math.max(1, Math.round(outH));
+
+		return {
+			width: safeWidth,
+			height: safeHeight
+		};
+	}
 
 function drawImageTriangle(
 	ctx: CanvasRenderingContext2D,
@@ -545,15 +629,13 @@ function drawImageTriangle(
 	ctx.restore();
 }
 
+	async function runSegmentationInBrowser() {
 
-	async function runSegmentation() {
-		if (!imageFile) return;
+		if (!imageFile || !imageEl) return;
 
 		isSegmenting = true;
 		segmentationError = '';
 		segmentationResult = null;
-
-		frozenZoom = null;
 
 		try {
 			const formData = new FormData();
@@ -565,34 +647,40 @@ function drawImageTriangle(
 			});
 
 			if (!response.ok) {
-				throw new Error(`Segmentation failed: ${response.status}`);
+				const text = await response.text();
+				throw new Error(text || 'Inference request failed');
 			}
 
-			const data = await response.json();
-			segmentationResult = data;
+			const result = await response.json();
 
-			console.log('Segmentation result:', data);
-			console.log('Container size:', containerSize);
+			console.log('API corners raw', result.corners);
 
-			if (data.ok && data.corners) {
-				updateSize();
-				updateDisplayedImageRect();
-				applyReturnedCorners(data.corners);
-				autoZoomToCorners = true;
-
-				setTimeout(() => {
-					frozenZoom = computeZoomMetrics();
-				}, 0);
+			if (!result.ok || !result.corners) {
+				throw new Error('API did not return corners');
 			}
 
-			console.log('Segmentation result:', data);
+			if (
+				!Array.isArray(result.corners) ||
+				result.corners.length !== 4 ||
+				result.corners.some((c: any) => !Number.isFinite(c.x) || !Number.isFinite(c.y))
+			) {
+				throw new Error('API returned invalid corners');
+			}
+
+			applyReturnedCorners(result.corners);
+
+			segmentationResult = {
+				ok: true,
+				refine_score: result.refine_score ?? null
+			};
 		} catch (error) {
-			segmentationError = error instanceof Error ? error.message : 'Unknown error';
+			segmentationError = error instanceof Error ? error.message : 'API inference error';
 			console.error(error);
 		} finally {
 			isSegmenting = false;
 		}
 	}
+
 
 	function getZoomStyle() {
 		const { scale, tx, ty } = getZoomMetrics();
@@ -1047,20 +1135,10 @@ function sampleBilinear(
 
 				const outIdx = (y * outWidth + x) * 4;
 
-				if (
-					srcPt.x < 0 ||
-					srcPt.x >= sw - 1 ||
-					srcPt.y < 0 ||
-					srcPt.y >= sh - 1
-				) {
-					outData[outIdx + 0] = 0;
-					outData[outIdx + 1] = 0;
-					outData[outIdx + 2] = 0;
-					outData[outIdx + 3] = 255;
-					continue;
-				}
+				const clampedX = Math.max(0, Math.min(sw - 1.001, srcPt.x));
+				const clampedY = Math.max(0, Math.min(sh - 1.001, srcPt.y));
 
-				const [r, g, b, a] = sampleBilinear(srcData, sw, sh, srcPt.x, srcPt.y);
+				const [r, g, b, a] = sampleBilinear(srcData, sw, sh, clampedX, clampedY);
 				outData[outIdx + 0] = Math.round(r);
 				outData[outIdx + 1] = Math.round(g);
 				outData[outIdx + 2] = Math.round(b);
@@ -1138,7 +1216,7 @@ function sampleBilinear(
 
 								<button
 									class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
-									onclick={runSegmentation}
+									onclick={runSegmentationInBrowser}
 									disabled={!imageFile || isSegmenting}
 								>
 									{isSegmenting ? 'Running...' : 'Re-detect'}
@@ -1288,15 +1366,21 @@ function sampleBilinear(
 															${getZoomStyle()}
 														`}
 											>
-												<img
-													bind:this={imageEl}
-													src={imageUrl}
-													alt="Uploaded source"
-													class="block h-full w-full object-fill"
-													draggable="false"
-													ondragstart={(e) => e.preventDefault()}
-													onload={updateSize}
-												/>
+											<img
+												bind:this={imageEl}
+												src={imageUrl}
+												alt="Uploaded source"
+												class="block h-full w-full object-fill"
+												draggable="false"
+												ondragstart={(e) => e.preventDefault()}
+												onload={() => {
+												updateSize();
+												if (pendingDetection) {
+													pendingDetection = false;
+													runSegmentationInBrowser();
+												}
+												}}
+											/>
 												<svg class="pointer-events-none absolute inset-0 h-full w-full">
 													<line
 														x1={`${(((corners.topLeft.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
