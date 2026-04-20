@@ -1,0 +1,21 @@
+# Node
+node_modules/
+.build/
+.vercel/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+
+# Models (VERY IMPORTANT)
+*.pt
+*.onnx
+*.engine
+
+# OS
+.DS_Store
+Thumbs.db
