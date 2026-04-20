@@ -14,10 +14,10 @@
 	let imageUrl = $state('');
 
 	let corners = $state({
-		topLeft: { x: 20, y: 20 },
-		topRight: { x: 80, y: 20 },
-		bottomLeft: { x: 20, y: 80 },
-		bottomRight: { x: 80, y: 80 }
+		topLeft: { x: 0, y: 0 },
+		topRight: { x: 0, y: 0 },
+		bottomLeft: { x: 0, y: 0 },
+		bottomRight: { x: 0, y: 0 }
 	});
 
 	let stepSize = $state(1);
@@ -71,11 +71,39 @@
 	let warpContainerSize = $state({ width: 1, height: 1 });
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 
-	let frozenZoom = $state<{ scale: number; tx: number; ty: number } | null>(null);
+	let frozenZoom = $state<{
+		scale: number;
+		centerXNorm: number;
+		centerYNorm: number;
+	} | null>(null);
 
 	let warpBoxSize = $state({ width: 0, height: 0 });
 
 	const GUIDE_STEP = 1;
+
+	let pageZoom = $state(1);
+
+	const PAGE_ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
+
+	function applyPageZoom(direction: 1 | -1) {
+		const currentIndex = PAGE_ZOOM_VALUES.findIndex(v => Math.abs(v - pageZoom) < 0.001);
+		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
+
+		const nextIndex = Math.max(
+			0,
+			Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction)
+		);
+
+		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
+	}
+
+	function zoomPageIn() {
+		applyPageZoom(1);
+	}
+
+	function zoomPageOut() {
+		applyPageZoom(-1);
+	}
 
 	const centeringGuides = [
 		{ id: 'top', orientation: 'horizontal' },
@@ -99,6 +127,71 @@
 	}
 
 	let pendingDetection = $state(false);
+
+	let frozenStage = $state<{ width: number; height: number } | null>(null);
+
+	let zoomLevel = $state(1);
+
+	const ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
+
+	function applyZoomDelta(direction: 1 | -1) {
+		const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
+		const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
+		const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
+
+		zoomLevel = ZOOM_VALUES[nextIndex];
+
+		if (zoomLevel === 1) {
+			frozenStage = null;
+			frozenZoom = null;
+			autoZoomToCorners = false;
+			return;
+		}
+
+		if (!imageEl) return;
+
+		const naturalWidth = imageEl.naturalWidth || 1;
+		const naturalHeight = imageEl.naturalHeight || 1;
+
+		const centerX =
+			(corners.topLeft.x +
+				corners.topRight.x +
+				corners.bottomRight.x +
+				corners.bottomLeft.x) / 4;
+
+		const centerY =
+			(corners.topLeft.y +
+				corners.topRight.y +
+				corners.bottomRight.y +
+				corners.bottomLeft.y) / 4;
+
+		frozenStage = null;
+
+		frozenZoom = {
+			scale: zoomLevel,
+			centerXNorm: centerX / naturalWidth,
+			centerYNorm: centerY / naturalHeight
+		};
+
+		autoZoomToCorners = false;
+	}
+
+	function zoomIn() {
+		applyZoomDelta(1);
+	}
+
+	function zoomOut() {
+		applyZoomDelta(-1);
+	}
+
+
+	function imageXToPercent(x: number) {
+		return `${((x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100)}%`;
+	}
+
+	function imageYToPercent(y: number) {
+		return `${((y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100)}%`;
+	}
 
 	onDestroy(() => {
 	if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -125,6 +218,12 @@
 		segmentationError = '';
 		segmentationResult = null;
 
+		frozenZoom = null;
+		autoZoomToCorners = false;
+		zoomLevel = 1;
+
+		frozenStage = null;
+
 		pendingDetection = true;
 	}
 
@@ -147,25 +246,29 @@
 	}
 
 	function moveCorner(cornerKey: keyof typeof corners, dx: number, dy: number) {
+		if (!imageEl) return;
+
 		const { scale } = getZoomMetrics();
 
-		const adjustedDx = dx / scale;
-		const adjustedDy = dy / scale;
+		const naturalWidth = imageEl.naturalWidth;
+		const naturalHeight = imageEl.naturalHeight;
 
-		const pxX = (corners[cornerKey].x / 100) * containerSize.width - displayedImageRect.x;
-		const pxY = (corners[cornerKey].y / 100) * containerSize.height - displayedImageRect.y;
+		if (!naturalWidth || !naturalHeight || !displayedImageRect.width || !displayedImageRect.height) {
+			return;
+		}
 
-		const newPxX = pxX + adjustedDx;
-		const newPxY = pxY + adjustedDy;
+		// convert one screen pixel into image pixels
+		const imagePxPerScreenPxX = naturalWidth / displayedImageRect.width;
+		const imagePxPerScreenPxY = naturalHeight / displayedImageRect.height;
 
-		const clampedX = Math.max(0, Math.min(displayedImageRect.width, newPxX));
-		const clampedY = Math.max(0, Math.min(displayedImageRect.height, newPxY));
+		// adjust for zoom, then convert into image-space deltas
+		const imageDx = (dx / scale) * imagePxPerScreenPxX;
+		const imageDy = (dy / scale) * imagePxPerScreenPxY;
 
-		const xInContainer = displayedImageRect.x + clampedX;
-		const yInContainer = displayedImageRect.y + clampedY;
+		const current = corners[cornerKey];
 
-		const nextX = (xInContainer / containerSize.width) * 100;
-		const nextY = (yInContainer / containerSize.height) * 100;
+		const nextX = Math.max(0, Math.min(naturalWidth, current.x + imageDx));
+		const nextY = Math.max(0, Math.min(naturalHeight, current.y + imageDy));
 
 		corners[cornerKey] = {
 			x: nextX,
@@ -185,25 +288,29 @@
 		if (!naturalWidth || !naturalHeight) return;
 
 		const imageAspect = naturalWidth / naturalHeight;
-		const containerAspect = containerWidth / containerHeight;
 
-		let width: number;
-		let height: number;
-		let x: number;
-		let y: number;
-
-		// COVER rect
-		if (imageAspect > containerAspect) {
-			height = containerHeight;
-			width = height * imageAspect;
-			x = (containerWidth - width) / 2;
-			y = 0;
-		} else {
-			width = containerWidth;
-			height = width / imageAspect;
-			x = 0;
-			y = (containerHeight - height) / 2;
+		if (frozenStage) {
+			const width = frozenStage.width;
+			const height = frozenStage.height;
+			const x = (containerWidth - width) / 2;
+			const y = (containerHeight - height) / 2;
+			displayedImageRect = { x, y, width, height };
+			return;
 		}
+
+		const maxStageWidth = Math.min(containerWidth, 720);
+		const maxStageHeight = Math.min(containerHeight, 960);
+
+		let width = maxStageWidth;
+		let height = width / imageAspect;
+
+		if (height > maxStageHeight) {
+			height = maxStageHeight;
+			width = height * imageAspect;
+		}
+
+		const x = (containerWidth - width) / 2;
+		const y = (containerHeight - height) / 2;
 
 		displayedImageRect = { x, y, width, height };
 	}
@@ -285,10 +392,10 @@
 
 	function updateSize() {
 		if (!containerEl) return;
-		const rect = containerEl.getBoundingClientRect();
+
 		containerSize = {
-			width: rect.width,
-			height: rect.height
+			width: containerEl.clientWidth,
+			height: containerEl.clientHeight
 		};
 
 		updateDisplayedImageRect();
@@ -377,9 +484,30 @@
 		} else {
 			activeCorner = cornerKey;
 			activeGuide = null;
-			if (!frozenZoom) {
-				frozenZoom = computeZoomMetrics();
-			}
+		if (!frozenZoom && zoomLevel === 1) {
+			const z = computeZoomMetrics();
+
+			const naturalWidth = imageEl?.naturalWidth || 1;
+			const naturalHeight = imageEl?.naturalHeight || 1;
+
+			const centerX =
+				(corners.topLeft.x +
+				corners.topRight.x +
+				corners.bottomRight.x +
+				corners.bottomLeft.x) / 4;
+
+			const centerY =
+				(corners.topLeft.y +
+				corners.topRight.y +
+				corners.bottomRight.y +
+				corners.bottomLeft.y) / 4;
+
+			frozenZoom = {
+				scale: z.scale,
+				centerXNorm: centerX / naturalWidth,
+				centerYNorm: centerY / naturalHeight
+			};
+		}
 		}
 	}
 
@@ -488,14 +616,8 @@
 		flashStepSize();
 	}
 
+
 	function applyReturnedCorners(returnedCorners: Array<{ id: string; x: number; y: number }>) {
-		if (!imageEl) return;
-
-		const naturalWidth = imageEl.naturalWidth;
-		const naturalHeight = imageEl.naturalHeight;
-
-		if (!naturalWidth || !naturalHeight) return;
-
 		const mapped: typeof corners = {
 			topLeft: { x: corners.topLeft.x, y: corners.topLeft.y },
 			topRight: { x: corners.topRight.x, y: corners.topRight.y },
@@ -504,34 +626,17 @@
 		};
 
 		for (const corner of returnedCorners) {
-			const xInContainer =
-				displayedImageRect.x + (corner.x / naturalWidth) * displayedImageRect.width;
-			const yInContainer =
-				displayedImageRect.y + (corner.y / naturalHeight) * displayedImageRect.height;
-
-			const xPct = Math.max(0, Math.min(100, (xInContainer / containerSize.width) * 100));
-			const yPct = Math.max(0, Math.min(100, (yInContainer / containerSize.height) * 100));
-
 			if (corner.id === 'top-left') {
-				mapped.topLeft = { x: xPct, y: yPct };
+				mapped.topLeft = { x: corner.x, y: corner.y };
 			} else if (corner.id === 'top-right') {
-				mapped.topRight = { x: xPct, y: yPct };
+				mapped.topRight = { x: corner.x, y: corner.y };
 			} else if (corner.id === 'bottom-right') {
-				mapped.bottomRight = { x: xPct, y: yPct };
+				mapped.bottomRight = { x: corner.x, y: corner.y };
 			} else if (corner.id === 'bottom-left') {
-				mapped.bottomLeft = { x: xPct, y: yPct };
+				mapped.bottomLeft = { x: corner.x, y: corner.y };
 			}
 		}
-		console.log('Mapped corners for overlay:', mapped);
 
-		console.log('applyReturnedCorners', {
-		returnedCorners,
-		mapped,
-		containerSize,
-		displayedImageRect,
-		naturalWidth,
-		naturalHeight
-});
 		corners = mapped;
 	}
 
@@ -669,18 +774,51 @@ function drawImageTriangle(
 
 			applyReturnedCorners(result.corners);
 
-			autoZoomToCorners = true;
-			frozenZoom = null;
+			if (zoomLevel === 1) {
+				autoZoomToCorners = true;
+				frozenZoom = null;
+			}
+
+			// wait one frame so corners/rendered image rect are updated, then freeze
+			requestAnimationFrame(() => {
+				const z = computeZoomMetrics();
+
+				const naturalWidth = imageEl?.naturalWidth || 1;
+				const naturalHeight = imageEl?.naturalHeight || 1;
+
+				const centerX =
+					(corners.topLeft.x +
+						corners.topRight.x +
+						corners.bottomRight.x +
+						corners.bottomLeft.x) / 4;
+
+				const centerY =
+					(corners.topLeft.y +
+						corners.topRight.y +
+						corners.bottomRight.y +
+						corners.bottomLeft.y) / 4;
+
+				if (zoomLevel === 1) {
+					frozenZoom = {
+						scale: z.scale,
+						centerXNorm: centerX / naturalWidth,
+						centerYNorm: centerY / naturalHeight
+					};
+
+					frozenStage = {
+						width: displayedImageRect.width,
+						height: displayedImageRect.height
+					};
+				} else {
+					frozenStage = null;
+				}
+			});
 
 			segmentationResult = {
 				ok: true,
 				refine_score: result.refine_score ?? null
 			};
 
-			segmentationResult = {
-				ok: true,
-				refine_score: result.refine_score ?? null
-			};
 		} catch (error) {
 			segmentationError = error instanceof Error ? error.message : 'API inference error';
 			console.error(error);
@@ -696,51 +834,33 @@ function drawImageTriangle(
 	}
 
 	function getZoomMetrics() {
-		if (frozenZoom) return frozenZoom;
+		if (frozenZoom) {
+			const centerX = frozenZoom.centerXNorm * displayedImageRect.width;
+			const centerY = frozenZoom.centerYNorm * displayedImageRect.height;
+
+			const tx = displayedImageRect.width / 2 - centerX * frozenZoom.scale;
+			const ty = displayedImageRect.height / 2 - centerY * frozenZoom.scale;
+
+			return {
+				scale: frozenZoom.scale,
+				tx,
+				ty
+			};
+		}
+
+		if (!autoZoomToCorners || !displayedImageRect.width || !displayedImageRect.height) {
+			return { scale: 1, tx: 0, ty: 0 };
+		}
+
 		return computeZoomMetrics();
 	}
 
 	function getCornersForBackend() {
-		if (!imageEl) return null;
-
-		const naturalWidth = imageEl.naturalWidth;
-		const naturalHeight = imageEl.naturalHeight;
-
-		if (!naturalWidth || !naturalHeight) return null;
-
-		const toImageCoords = (xPct: number, yPct: number) => {
-			const xInContainer = (xPct / 100) * containerSize.width;
-			const yInContainer = (yPct / 100) * containerSize.height;
-
-			const xInImage = xInContainer - displayedImageRect.x;
-			const yInImage = yInContainer - displayedImageRect.y;
-
-			const x = (xInImage / displayedImageRect.width) * naturalWidth;
-			const y = (yInImage / displayedImageRect.height) * naturalHeight;
-
-			return {
-				x: Math.max(0, Math.min(naturalWidth, x)),
-				y: Math.max(0, Math.min(naturalHeight, y))
-			};
-		};
-
 		return [
-			{
-				id: 'top-left',
-				...toImageCoords(corners.topLeft.x, corners.topLeft.y)
-			},
-			{
-				id: 'top-right',
-				...toImageCoords(corners.topRight.x, corners.topRight.y)
-			},
-			{
-				id: 'bottom-right',
-				...toImageCoords(corners.bottomRight.x, corners.bottomRight.y)
-			},
-			{
-				id: 'bottom-left',
-				...toImageCoords(corners.bottomLeft.x, corners.bottomLeft.y)
-			}
+			{ id: 'top-left', ...corners.topLeft },
+			{ id: 'top-right', ...corners.topRight },
+			{ id: 'bottom-right', ...corners.bottomRight },
+			{ id: 'bottom-left', ...corners.bottomLeft }
 		];
 	}
 
@@ -838,33 +958,30 @@ function drawImageTriangle(
 	function updateWarpDisplayedImageRect() {
 		if (!warpContainerEl) return;
 
-		const rect = warpContainerEl.getBoundingClientRect();
-		const availW = rect.width;
-		const availH = rect.height;
+		const width = warpContainerEl.clientWidth;
+		const height = warpContainerEl.clientHeight;
 
-		warpContainerSize = {
-			width: availW,
-			height: availH
-		};
-
-		const targetAspect = 63 / 88;
-
-		let width = availW;
-		let height = width / targetAspect;
-
-		if (height > availH) {
-			height = availH;
-			width = height * targetAspect;
-		}
-
+		warpContainerSize = { width, height };
 		warpBoxSize = { width, height };
 
 		warpDisplayedImageRect = {
-			x: (availW - width) / 2,
-			y: (availH - height) / 2,
+			x: 0,
+			y: 0,
 			width,
 			height
 		};
+	}
+
+
+
+	function formatPct(value: number) {
+		return `${value.toFixed(1)}%`;
+	}
+
+	function formatRatio(a: number, b: number) {
+		if (a <= 0 || b <= 0) return '--';
+		const ratio = a > b ? a / b : b / a;
+		return ratio.toFixed(2);
 	}
 
 	function computeZoomMetrics() {
@@ -872,62 +989,58 @@ function drawImageTriangle(
 			return { scale: 1, tx: 0, ty: 0 };
 		}
 
+		const naturalWidth = imageEl?.naturalWidth || 1;
+		const naturalHeight = imageEl?.naturalHeight || 1;
+
 		const xs = [
-			(corners.topLeft.x / 100) * containerSize.width - displayedImageRect.x,
-			(corners.topRight.x / 100) * containerSize.width - displayedImageRect.x,
-			(corners.bottomRight.x / 100) * containerSize.width - displayedImageRect.x,
-			(corners.bottomLeft.x / 100) * containerSize.width - displayedImageRect.x
+			(corners.topLeft.x / naturalWidth) * displayedImageRect.width,
+			(corners.topRight.x / naturalWidth) * displayedImageRect.width,
+			(corners.bottomRight.x / naturalWidth) * displayedImageRect.width,
+			(corners.bottomLeft.x / naturalWidth) * displayedImageRect.width
 		];
 
 		const ys = [
-			(corners.topLeft.y / 100) * containerSize.height - displayedImageRect.y,
-			(corners.topRight.y / 100) * containerSize.height - displayedImageRect.y,
-			(corners.bottomRight.y / 100) * containerSize.height - displayedImageRect.y,
-			(corners.bottomLeft.y / 100) * containerSize.height - displayedImageRect.y
+			(corners.topLeft.y / naturalHeight) * displayedImageRect.height,
+			(corners.topRight.y / naturalHeight) * displayedImageRect.height,
+			(corners.bottomRight.y / naturalHeight) * displayedImageRect.height,
+			(corners.bottomLeft.y / naturalHeight) * displayedImageRect.height
 		];
 
-		// more breathing room
-		const padX = 85;
-		const padY = 105;
-
-		const minX = Math.max(0, Math.min(...xs) - padX);
-		const maxX = Math.min(displayedImageRect.width, Math.max(...xs) + padX);
-		const minY = Math.max(0, Math.min(...ys) - padY);
-		const maxY = Math.min(displayedImageRect.height, Math.max(...ys) + padY);
+		const minX = Math.min(...xs);
+		const maxX = Math.max(...xs);
+		const minY = Math.min(...ys);
+		const maxY = Math.max(...ys);
 
 		const boxWidth = Math.max(1, maxX - minX);
 		const boxHeight = Math.max(1, maxY - minY);
 
-		const rawScale = Math.min(
-			displayedImageRect.width / boxWidth,
-			displayedImageRect.height / boxHeight
-		);
+		// use a capped reference viewport so big screens don't increase auto-zoom
+		const refWidth = Math.min(displayedImageRect.width, 520);
+		const refHeight = Math.min(displayedImageRect.height, 760);
 
-		const widthFrac = boxWidth / Math.max(displayedImageRect.width, 1);
-		const heightFrac = boxHeight / Math.max(displayedImageRect.height, 1);
-		const coverFrac = Math.max(widthFrac, heightFrac);
+		const currentWidthFrac = boxWidth / refWidth;
+		const currentHeightFrac = boxHeight / refHeight;
 
-		let maxZoom = 1.0;
-
-		if (coverFrac < 0.45) {
-			maxZoom = 1.8;
-		} else if (coverFrac < 0.6) {
-			maxZoom = 1.45;
-		} else if (coverFrac < 0.75) {
-			maxZoom = 1.2;
-		} else {
-			maxZoom = 1.0;
+		// if the card already fills most of the reference viewport, don't zoom
+		if (currentWidthFrac > 0.72 || currentHeightFrac > 0.72) {
+			return { scale: 1, tx: 0, ty: 0 };
 		}
 
-		let scale = Math.max(1, Math.min(rawScale, maxZoom));
+		const targetWidthFrac = 0.68;
+		const targetHeightFrac = 0.70;
+
+		const scaleX = (refWidth * targetWidthFrac) / boxWidth;
+		const scaleY = (refHeight * targetHeightFrac) / boxHeight;
+
+		let scale = Math.min(scaleX, scaleY);
+		scale = Math.max(1, scale);
 
 		const centerX = (minX + maxX) / 2;
 		const centerY = (minY + maxY) / 2;
 
-		// reserve room for arrow handles
-		const handleMargin = 28;
+		const handleMargin = 34;
 
-		for (let i = 0; i < 8; i++) {
+		for (let i = 0; i < 10; i++) {
 			const txTry = displayedImageRect.width / 2 - centerX * scale;
 			const tyTry = displayedImageRect.height / 2 - centerY * scale;
 
@@ -958,16 +1071,6 @@ function drawImageTriangle(
 		const ty = displayedImageRect.height / 2 - centerY * scale;
 
 		return { scale: Math.max(1, scale), tx, ty };
-	}
-
-	function formatPct(value: number) {
-		return `${value.toFixed(1)}%`;
-	}
-
-	function formatRatio(a: number, b: number) {
-		if (a <= 0 || b <= 0) return '--';
-		const ratio = a > b ? a / b : b / a;
-		return ratio.toFixed(2);
 	}
 
 	const centeringStats = $derived(getCenteringStats());
@@ -1207,6 +1310,13 @@ function sampleBilinear(
 </script>
 
 <div
+	class="origin-top-left"
+	style={`
+		transform: scale(${pageZoom});
+		width: ${100 / pageZoom}%;
+	`}
+>
+<div
 	class="min-h-screen bg-zinc-950
 		text-zinc-100 select-none"
 	onwheel={handleWheel}
@@ -1220,11 +1330,9 @@ function sampleBilinear(
 		</div>
 	</header>
 
-	<main class="mx-auto flex h-[calc(100vh-160px)] max-w-[1600px] flex-col gap-6 px-6 py-6">
-		<div class="grid h-full gap-6 xl:grid-cols-[420px_minmax(0,1fr)_minmax(0,1fr)]">
-			<section
-				class="flex h-full min-h-0 flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
-			>
+	<main class="mx-auto flex h-[calc(100vh-220px)] w-full flex-col gap-6 px-6 py-6">
+		<div class="grid items-start justify-center gap-6 xl:grid-cols-[420px_auto_auto]">
+			<section class="flex w-[420px] flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">		
 				<div class="border-b border-zinc-800 px-5 py-4">
 					<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Adjustments</h2>
 					<p class="text-xs text-zinc-500">
@@ -1277,6 +1385,27 @@ function sampleBilinear(
 									{isSegmenting ? 'Running...' : 'Re-detect'}
 								</button>
 							</div>
+							<div class="grid grid-cols-3 gap-3">
+							<button
+								class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
+								onclick={zoomPageOut}
+								type="button"
+							>
+								-
+							</button>
+
+							<div class="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300">
+								{Math.round(pageZoom * 100)}%
+							</div>
+
+							<button
+								class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
+								onclick={zoomPageIn}
+								type="button"
+							>
+								+
+							</button>
+						</div>
 						</div>
 					</div>
 
@@ -1367,15 +1496,16 @@ function sampleBilinear(
 					</div>
 				</div>
 			</section>
-			<section class="flex h-full flex-col border border-zinc-800 bg-zinc-900 shadow-sm">
+
+			<section class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm">
 				<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 					<div>
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source</h2>
 						<p class="text-xs text-zinc-500">Original image with corner overlay</p>
 					</div>
 				</div>
-
-				<div class="flex h-full items-center justify-center p-5">
+				<div class="grid place-items-center py-2 px-3">
+					<div class="relative aspect-[5/7] w-[520px] max-w-[min(40vw,520px)]">
 					<label
 						for="image-upload"
 						class={`group flex h-full w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-zinc-700 bg-zinc-950 transition ${
@@ -1395,20 +1525,27 @@ function sampleBilinear(
 							disabled={!!imageUrl}
 						/>
 
-						<div class="flex h-full w-full items-center justify-center">
-							<div class="relative h-full w-full overflow-hidden" bind:this={containerEl}>
+							<div class="flex w-full items-center justify-center">
+								<div
+									class="absolute inset-0 overflow-hidden rounded-xl"
+									bind:this={containerEl}
+								>
 								{#if imageUrl}
 									<div class="absolute inset-0" onclick={clearActiveSelection}>
 										<!-- fixed review viewport -->
 										<div class="absolute inset-0 overflow-hidden rounded-xl">
 											<!-- static background fill so no black bars ever appear -->
-											<img
-												src={imageUrl}
-												alt=""
-												aria-hidden="true"
-												class="absolute inset-0 h-full w-full object-cover opacity-100"
-												draggable="false"
-											/>
+								{#if !autoZoomToCorners && !frozenZoom}
+									<img
+										src={imageUrl}
+										alt=""
+										aria-hidden="true"
+										class="absolute inset-0 h-full w-full object-cover opacity-100"
+										draggable="false"
+									/>
+								{:else}
+									<div class="absolute inset-0 bg-zinc-950"></div>
+								{/if}
 
 											<!-- fixed image plane -->
 											<div
@@ -1425,7 +1562,7 @@ function sampleBilinear(
 												bind:this={imageEl}
 												src={imageUrl}
 												alt="Uploaded source"
-												class="block h-full w-full object-fill"
+												class="block h-full w-full object-contain"
 												draggable="false"
 												ondragstart={(e) => e.preventDefault()}
 												onload={() => {
@@ -1436,48 +1573,48 @@ function sampleBilinear(
 												}
 												}}
 											/>
-												<svg class="pointer-events-none absolute inset-0 h-full w-full">
-													<line
-														x1={`${(((corners.topLeft.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y1={`${(((corners.topLeft.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														x2={`${(((corners.topRight.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y2={`${(((corners.topRight.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														stroke="cyan"
-														stroke-width="1.5"
-														stroke-dasharray="6 6"
-														opacity="0.9"
-													/>
-													<line
-														x1={`${(((corners.topRight.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y1={`${(((corners.topRight.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														x2={`${(((corners.bottomRight.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y2={`${(((corners.bottomRight.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														stroke="cyan"
-														stroke-width="1.5"
-														stroke-dasharray="6 6"
-														opacity="0.9"
-													/>
-													<line
-														x1={`${(((corners.bottomRight.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y1={`${(((corners.bottomRight.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														x2={`${(((corners.bottomLeft.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y2={`${(((corners.bottomLeft.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														stroke="cyan"
-														stroke-width="1.5"
-														stroke-dasharray="6 6"
-														opacity="0.9"
-													/>
-													<line
-														x1={`${(((corners.bottomLeft.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y1={`${(((corners.bottomLeft.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														x2={`${(((corners.topLeft.x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														y2={`${(((corners.topLeft.y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
-														stroke="cyan"
-														stroke-width="1.5"
-														stroke-dasharray="6 6"
-														opacity="0.9"
-													/>
-												</svg>
+											<svg class="pointer-events-none absolute inset-0 h-full w-full">
+												<line
+													x1={`${(corners.topLeft.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y1={`${(corners.topLeft.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													x2={`${(corners.topRight.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y2={`${(corners.topRight.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													stroke="cyan"
+													stroke-width="1.5"
+													stroke-dasharray="6 6"
+													opacity="0.9"
+												/>
+												<line
+													x1={`${(corners.topRight.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y1={`${(corners.topRight.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													x2={`${(corners.bottomRight.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y2={`${(corners.bottomRight.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													stroke="cyan"
+													stroke-width="1.5"
+													stroke-dasharray="6 6"
+													opacity="0.9"
+												/>
+												<line
+													x1={`${(corners.bottomRight.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y1={`${(corners.bottomRight.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													x2={`${(corners.bottomLeft.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y2={`${(corners.bottomLeft.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													stroke="cyan"
+													stroke-width="1.5"
+													stroke-dasharray="6 6"
+													opacity="0.9"
+												/>
+												<line
+													x1={`${(corners.bottomLeft.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y1={`${(corners.bottomLeft.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													x2={`${(corners.topLeft.x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+													y2={`${(corners.topLeft.y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+													stroke="cyan"
+													stroke-width="1.5"
+													stroke-dasharray="6 6"
+													opacity="0.9"
+												/>
+											</svg>
 
 												{#each cornerOverlayItems as corner}
 													<button
@@ -1489,8 +1626,8 @@ function sampleBilinear(
 																? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
 																: 'text-cyan-400 hover:text-green-300'
 														}`}
-														style:left={`${(((corners[corner.key].x / 100) * containerSize.width - displayedImageRect.x) / Math.max(displayedImageRect.width, 1)) * 100}%`}
-														style:top={`${(((corners[corner.key].y / 100) * containerSize.height - displayedImageRect.y) / Math.max(displayedImageRect.height, 1)) * 100}%`}
+														style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+														style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
 														style:transform={corner.key === 'topLeft'
 															? 'translate(-85%, -85%)'
 															: corner.key === 'topRight'
@@ -1530,16 +1667,17 @@ function sampleBilinear(
 										</div>
 									</div>
 								{/if}
+								</div>
 							</div>
-						</div>
 					</label>
-				</div>
+						</div>
+					</div>
 			</section>
 
 			<section
-				class="flex h-full min-h-0 flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
+				class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 			>
-				<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+				<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-2">
 					<div>
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">
 							Warp Preview
@@ -1548,7 +1686,7 @@ function sampleBilinear(
 					</div>
 				</div>
 
-				<div class="flex min-h-0 flex-1 flex-col gap-4 p-5">
+				<div class="flex flex-col gap-4 p-5">
 					<!-- Centering Metrics -->
 					<div class="grid shrink-0 grid-cols-2 gap-4 text-sm">
 						<!-- Vertical Centering -->
@@ -1617,21 +1755,21 @@ function sampleBilinear(
 					</div>
 
 					<!-- Warp Image -->
-					<div class="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-						{#if warpedImageUrl}
-							<div
-								class="relative h-full w-full"
-								bind:this={warpContainerEl}
-								onclick={clearActiveSelection}
-							>
+					<div class="grid place-items-center overflow-hidden">
+						<div
+							class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] border border-dashed border-zinc-700 bg-zinc-950"
+							bind:this={warpContainerEl}
+							onclick={clearActiveSelection}
+						>
+							{#if warpedImageUrl}
 								<div
-									class="absolute overflow-hidden border border-dashed border-zinc-700 bg-zinc-950"
+									class="absolute inset-0 overflow-hidden"
 									style={`
-					left: ${warpDisplayedImageRect.x}px;
-					top: ${warpDisplayedImageRect.y}px;
-					width: ${warpDisplayedImageRect.width}px;
-					height: ${warpDisplayedImageRect.height}px;
-				`}
+										left: ${warpDisplayedImageRect.x}px;
+										top: ${warpDisplayedImageRect.y}px;
+										width: ${warpDisplayedImageRect.width}px;
+										height: ${warpDisplayedImageRect.height}px;
+									`}
 								>
 									<img
 										bind:this={warpImageEl}
@@ -1701,11 +1839,16 @@ function sampleBilinear(
 										{/each}
 									</div>
 								</div>
-							</div>
-						{/if}
+							{:else}
+								<div class="absolute inset-0 flex items-center justify-center rounded-xl text-sm text-zinc-500">
+									Warp preview will appear here
+								</div>
+							{/if}
+						</div>
 					</div>
 				</div>
 			</section>
 		</div>
 	</main>
+</div>
 </div>
