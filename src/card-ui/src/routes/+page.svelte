@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 
+	const API_BASE = 'https://card-centering-api.onrender.com/api';
+
 	const cornerPads = [
 		{ id: 'topLeft', label: 'Top Left' },
 		{ id: 'topRight', label: 'Top Right' },
@@ -446,7 +448,7 @@
 			const formData = new FormData();
 			formData.append('file', imageFile);
 
-			const response = await fetch('/api/infer-json', {
+			const response = await fetch(`${API_BASE}/infer-json`, {
 				method: 'POST',
 				body: formData
 			});
@@ -546,7 +548,7 @@
 			formData.append('file', imageFile);
 			formData.append('corners_json', JSON.stringify(backendCorners));
 
-			const response = await fetch('/api/warp-from-corners', {
+			const response = await fetch(`${API_BASE}/infer-json`, {
 				method: 'POST',
 				body: formData
 			});
