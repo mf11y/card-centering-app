@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { onMount, onDestroy } from 'svelte';
 	import { flip } from 'svelte/animate';
 
@@ -135,6 +136,7 @@
 			pendingDetection = false;
 			imageReadyForControls = false;
 
+
 			corners = {
 				topLeft: { x: 0, y: 0 },
 				topRight: { x: 0, y: 0 },
@@ -145,6 +147,7 @@
 			const input = document.getElementById('image-upload') as HTMLInputElement | null;
 			if (input) input.value = '';
 		}
+		pageZoom = 1;
 	}
 
 	function snapGuideDisplayPx(value: number) {
