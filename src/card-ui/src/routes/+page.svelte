@@ -83,6 +83,19 @@
 
 	let isDark = $state(true);
 
+	let nudgeWarpTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	const NUDGE_WARP_DELAY = 150;
+
+	function scheduleNudgeWarp() {
+		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
+
+		nudgeWarpTimeout = setTimeout(() => {
+			runWarpPreview();
+			nudgeWarpTimeout = null;
+		}, NUDGE_WARP_DELAY);
+	}
+
 	$effect(() => {
 		const shouldShow = !imageReadyForControls || isSegmenting;
 
@@ -155,11 +168,6 @@
 
 	let pageZoom = $state(1);
 
-	function clearActiveSelection() {
-		activeGuide = null;
-		activeCorner = null;
-	}
-
 	let pendingDetection = $state(false);
 
 	let frozenStage = $state<{ width: number; height: number } | null>(null);
@@ -170,34 +178,52 @@
 
 	let draggingCorner: keyof typeof corners | null = null;
 
-	let warpDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-	const WARP_DEBOUNCE_MS = 300;
+	let didDragCorner = $state(false);
+	let suppressClearSelectionUntil = 0;
 
 	function onPointerMove(e: PointerEvent) {
 		if (!draggingCorner || !imageEl) return;
+
+		didDragCorner = true;
 
 		const rect = imageEl.getBoundingClientRect();
 
 		const x = ((e.clientX - rect.left) / rect.width) * imageEl.naturalWidth;
 		const y = ((e.clientY - rect.top) / rect.height) * imageEl.naturalHeight;
 
-		corners[draggingCorner] = {
-			x: Math.max(0, Math.min(imageEl.naturalWidth, x)),
-			y: Math.max(0, Math.min(imageEl.naturalHeight, y))
-		};
+		const clampedX = Math.max(0, Math.min(imageEl.naturalWidth, x));
+		const clampedY = Math.max(0, Math.min(imageEl.naturalHeight, y));
+
+		const current = corners[draggingCorner];
+
+		moveCorner(draggingCorner, clampedX - current.x, clampedY - current.y, false);
 	}
 
 	function stopDrag() {
+		const draggedCorner = draggingCorner;
 		draggingCorner = null;
 
 		window.removeEventListener('pointermove', onPointerMove);
 		window.removeEventListener('pointerup', stopDrag);
 
-		// run immediately on release
-		if (warpDebounceTimer) {
-			clearTimeout(warpDebounceTimer);
+		if (draggedCorner) {
+			activeCorner = draggedCorner;
+			activeGuide = null;
 		}
+
+		if (didDragCorner) {
+			suppressClearSelectionUntil = Date.now() + 250;
+		}
+
+		didDragCorner = false;
 		runWarpPreview();
+	}
+
+	function clearActiveSelection() {
+		if (Date.now() < suppressClearSelectionUntil) return;
+
+		activeGuide = null;
+		activeCorner = null;
 	}
 
 	function imageXToPercent(x: number) {
@@ -216,6 +242,9 @@
 		}
 		if (segmentationMaskUrl?.startsWith('blob:')) {
 			URL.revokeObjectURL(segmentationMaskUrl);
+		}
+		if (nudgeWarpTimeout) {
+			clearTimeout(nudgeWarpTimeout);
 		}
 	});
 
@@ -270,7 +299,7 @@
 		event.preventDefault();
 	}
 
-	function moveCorner(cornerKey: keyof typeof corners, dx: number, dy: number) {
+	function moveCorner(cornerKey: keyof typeof corners, dx: number, dy: number, updateWarp = true) {
 		if (!imageEl) return;
 
 		const naturalWidth = imageEl.naturalWidth;
@@ -287,16 +316,10 @@
 			x: nextX,
 			y: nextY
 		};
-	}
 
-	function scheduleWarpUpdate() {
-		if (warpDebounceTimer) {
-			clearTimeout(warpDebounceTimer);
+		if (updateWarp) {
+			scheduleNudgeWarp();
 		}
-
-		warpDebounceTimer = setTimeout(() => {
-			runWarpPreview();
-		}, WARP_DEBOUNCE_MS);
 	}
 
 	function runWarpPreview() {
@@ -360,22 +383,6 @@
 		}, 0);
 	});
 
-	$effect(() => {
-		if (!imageFile) return;
-		if (!imageEl) return;
-
-		corners.topLeft.x;
-		corners.topLeft.y;
-		corners.topRight.x;
-		corners.topRight.y;
-		corners.bottomRight.x;
-		corners.bottomRight.y;
-		corners.bottomLeft.x;
-		corners.bottomLeft.y;
-
-		scheduleWarpUpdate();
-	});
-
 	let resizeObserver: ResizeObserver;
 
 	onMount(() => {
@@ -384,22 +391,13 @@
 			updateWarpDisplayedImageRect();
 		});
 
-		const handleMouseDown = (e: MouseEvent) => {
-			const el = e.target as HTMLElement;
-			if (el.closest('button')) {
-				e.preventDefault();
-			}
-		};
-
 		window.addEventListener('keydown', handleKeydown);
 		window.addEventListener('keyup', handleKeyup);
-		window.addEventListener('mousedown', handleMouseDown);
 
 		return () => {
 			resizeObserver?.disconnect();
 			window.removeEventListener('keydown', handleKeydown);
 			window.removeEventListener('keyup', handleKeyup);
-			window.removeEventListener('mousedown', handleMouseDown);
 		};
 	});
 
@@ -469,6 +467,8 @@
 				activeDirection = direction;
 			}
 		});
+
+		scheduleNudgeWarp();
 	}
 
 	function flashStepSize() {
@@ -504,6 +504,7 @@
 		}
 
 		corners = mapped;
+		runWarpPreview();
 	}
 
 	async function runSegmentationInBrowser() {
@@ -1224,10 +1225,18 @@
 																e.stopPropagation();
 																e.preventDefault();
 
+																activeCorner = corner.key;
+																activeGuide = null;
 																draggingCorner = corner.key;
+																didDragCorner = false;
 
 																window.addEventListener('pointermove', onPointerMove);
 																window.addEventListener('pointerup', stopDrag);
+															}}
+															onclick={(e) => {
+																e.stopPropagation();
+																activeCorner = corner.key;
+																activeGuide = null;
 															}}
 														>
 															<div
@@ -1429,7 +1438,7 @@
 											src={warpedImageUrl}
 											alt="Warped preview"
 											class="absolute inset-0 h-full w-full object-cover"
-											onload={scheduleWarpUpdate}
+											onload={() => updateWarpDisplayedImageRect()}
 											draggable="false"
 										/>
 
