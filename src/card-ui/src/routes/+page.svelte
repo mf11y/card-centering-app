@@ -995,8 +995,8 @@
 								</div>
 
 								<p>
-									This tool helps you analyze trading card centering by detecting edges and
-									measuring border spacing. It works mainly for Pokemon TCG.
+									This tool helps you analyze Pokemon TCG centering by auto-detecting edges and
+									measuring border spacing. 
 								</p>
 
 								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
@@ -1004,10 +1004,10 @@
 								</div>
 
 								<ul class="list-disc space-y-1 pl-5">
-									<li>Upload a card image to begin detection, large files may take a bit</li>
+									<li>Upload a card image to begin detection</li>
 									<li>Click on corners of second panel to adjust lines to sides of card. WASD, arrow pads, or directional keys can be used to adjust.</li>
 									<li>Use the warp preview to verify alignment</li>
-									<li>Check centering percentages. % turns red when the border ratio exceeds PSA 10 standards.</li>
+									<li>Check centering percentages. % Turns red when the border ratio exceeds PSA 10 standards.</li>
 									<li>Day/Night mode in the warp preview can be used to help find border edge.</li>
 								</ul>
 
