@@ -54,8 +54,6 @@
 
 	let warpedImageUrl = $state('');
 
-	let warpPreviewTimeout: ReturnType<typeof setTimeout> | null = null;
-
 	let activeGuide = $state<GuideKey | null>(null);
 
 	let guideInsetsPx = $state({
@@ -170,6 +168,38 @@
 
 	let imageReadyForControls = $state(false);
 
+	let draggingCorner: keyof typeof corners | null = null;
+
+	let warpDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	const WARP_DEBOUNCE_MS = 300;
+
+	function onPointerMove(e: PointerEvent) {
+		if (!draggingCorner || !imageEl) return;
+
+		const rect = imageEl.getBoundingClientRect();
+
+		const x = ((e.clientX - rect.left) / rect.width) * imageEl.naturalWidth;
+		const y = ((e.clientY - rect.top) / rect.height) * imageEl.naturalHeight;
+
+		corners[draggingCorner] = {
+			x: Math.max(0, Math.min(imageEl.naturalWidth, x)),
+			y: Math.max(0, Math.min(imageEl.naturalHeight, y))
+		};
+	}
+
+	function stopDrag() {
+		draggingCorner = null;
+
+		window.removeEventListener('pointermove', onPointerMove);
+		window.removeEventListener('pointerup', stopDrag);
+
+		// run immediately on release
+		if (warpDebounceTimer) {
+			clearTimeout(warpDebounceTimer);
+		}
+		runWarpPreview();
+	}
+
 	function imageXToPercent(x: number) {
 		return `${(x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`;
 	}
@@ -259,6 +289,16 @@
 		};
 	}
 
+	function scheduleWarpUpdate() {
+		if (warpDebounceTimer) {
+			clearTimeout(warpDebounceTimer);
+		}
+
+		warpDebounceTimer = setTimeout(() => {
+			runWarpPreview();
+		}, WARP_DEBOUNCE_MS);
+	}
+
 	function runWarpPreview() {
 		if (!imageEl) return;
 
@@ -333,19 +373,7 @@
 		corners.bottomLeft.x;
 		corners.bottomLeft.y;
 
-		if (warpPreviewTimeout) {
-			clearTimeout(warpPreviewTimeout);
-		}
-
-		warpPreviewTimeout = setTimeout(() => {
-			runWarpPreview();
-		}, 50);
-
-		return () => {
-			if (warpPreviewTimeout) {
-				clearTimeout(warpPreviewTimeout);
-			}
-		};
+		scheduleWarpUpdate();
 	});
 
 	let resizeObserver: ResizeObserver;
@@ -1007,7 +1035,7 @@
 									<li>Upload a card image to begin detection</li>
 									<li>
 										Click on corners of second panel to adjust lines to sides of card. WASD, arrow
-										pads, or directional keys can be used to adjust.
+										pads, directional keys, and mouse can be used to adjust.
 									</li>
 									<li>Use the warp preview to verify alignment</li>
 									<li>
@@ -1192,9 +1220,14 @@
 																	: corner.key === 'bottomLeft'
 																		? 'translate(-85%, -15%)'
 																		: 'translate(-15%, -15%)'}
-															onclick={(e) => {
+															onpointerdown={(e) => {
 																e.stopPropagation();
-																toggleCornerActive(corner.key);
+																e.preventDefault();
+
+																draggingCorner = corner.key;
+
+																window.addEventListener('pointermove', onPointerMove);
+																window.addEventListener('pointerup', stopDrag);
 															}}
 														>
 															<div
@@ -1396,7 +1429,7 @@
 											src={warpedImageUrl}
 											alt="Warped preview"
 											class="absolute inset-0 h-full w-full object-cover"
-											onload={updateWarpDisplayedImageRect}
+											onload={scheduleWarpUpdate}
 											draggable="false"
 										/>
 
