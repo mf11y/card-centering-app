@@ -996,8 +996,7 @@
 
 								<p>
 									This tool helps you analyze trading card centering by detecting edges and
-									measuring border spacing. It works for Pokémon cards, sports cards, and other
-									collectibles.
+									measuring border spacing. It works mainly for Pokemon TCG.
 								</p>
 
 								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
