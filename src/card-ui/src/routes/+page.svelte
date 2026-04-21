@@ -147,10 +147,19 @@
 				bottomRight: { x: 0, y: 0 }
 			};
 
+			guideInsetsPx = {
+				top: 24,
+				bottom: 24,
+				left: 24,
+				right: 24
+			};
+
 			const input = document.getElementById('image-upload') as HTMLInputElement | null;
 			if (input) input.value = '';
 		}
 		pageZoom = 1;
+		stepSize = 1;
+		isDark = true;
 	}
 
 
