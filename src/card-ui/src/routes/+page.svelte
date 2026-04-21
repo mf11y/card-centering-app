@@ -1883,27 +1883,48 @@
 								</div>
 
 								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
-									<div class="flex items-center justify-between text-sm text-zinc-400">
-										<span>Top</span>
-										<span>Bottom</span>
-									</div>
+									<div class="relative grid grid-cols-2 gap-x-8">
+										<div class="text-left">
+											<div class="text-sm text-zinc-400">Top</div>
+											<div
+												class={`mt-2 text-2xl font-semibold ${
+													centeringStats.topPct > ALERT_THRESHOLD ? 'text-red-400' : 'text-zinc-100'
+												}`}
+											>
+												{formatPct(centeringStats.topPct)}
+											</div>
+										</div>
 
-									<div class="mt-2 flex items-center justify-between text-2xl font-semibold">
-										<span
-											class={centeringStats.topPct > ALERT_THRESHOLD
-												? 'text-red-400'
-												: 'text-zinc-100'}
-										>
-											{formatPct(centeringStats.topPct)}
-										</span>
+										<div class="text-right">
+											<div class="text-sm text-zinc-400">Bottom</div>
+											<div
+												class={`mt-2 text-2xl font-semibold ${
+													centeringStats.bottomPct > ALERT_THRESHOLD
+														? 'text-red-400'
+														: 'text-zinc-100'
+												}`}
+											>
+												{formatPct(centeringStats.bottomPct)}
+											</div>
+										</div>
 
-										<span
-											class={centeringStats.bottomPct > ALERT_THRESHOLD
-												? 'text-red-400'
-												: 'text-zinc-100'}
+										<svg
+											class="pointer-events-none absolute inset-y-2 left-1/2 h-[calc(100%-1rem)] w-[2px] -translate-x-1/2"
+											viewBox="0 0 2 100"
+											preserveAspectRatio="none"
+											aria-hidden="true"
 										>
-											{formatPct(centeringStats.bottomPct)}
-										</span>
+											<line
+												x1="1"
+												y1="0"
+												x2="1"
+												y2="100"
+												stroke="rgb(82 82 91 / 0.6)"
+												stroke-width="1"
+												vector-effect="non-scaling-stroke"
+												shape-rendering="crispEdges"
+											/>
+										</svg>
 									</div>
 								</div>
 							</div>
@@ -1915,27 +1936,48 @@
 								</div>
 
 								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
-									<div class="flex items-center justify-between text-sm text-zinc-400">
-										<span>Left</span>
-										<span>Right</span>
-									</div>
+									<div class="relative grid grid-cols-2 gap-x-8">
+										<div class="text-left">
+											<div class="text-sm text-zinc-400">Left</div>
+											<div
+												class={`mt-2 text-2xl font-semibold ${
+													centeringStats.topPct > ALERT_THRESHOLD ? 'text-red-400' : 'text-zinc-100'
+												}`}
+											>
+												{formatPct(centeringStats.leftPct)}
+											</div>
+										</div>
 
-									<div class="mt-2 flex items-center justify-between text-2xl font-semibold">
-										<span
-											class={centeringStats.leftPct > ALERT_THRESHOLD
-												? 'text-red-400'
-												: 'text-zinc-100'}
-										>
-											{formatPct(centeringStats.leftPct)}
-										</span>
+										<div class="text-right">
+											<div class="text-sm text-zinc-400">Right</div>
+											<div
+												class={`mt-2 text-2xl font-semibold ${
+													centeringStats.bottomPct > ALERT_THRESHOLD
+														? 'text-red-400'
+														: 'text-zinc-100'
+												}`}
+											>
+												{formatPct(centeringStats.rightPct)}
+											</div>
+										</div>
 
-										<span
-											class={centeringStats.rightPct > ALERT_THRESHOLD
-												? 'text-red-400'
-												: 'text-zinc-100'}
+										<svg
+											class="pointer-events-none absolute inset-y-2 left-1/2 h-[calc(100%-1rem)] w-[2px] -translate-x-1/2"
+											viewBox="0 0 2 100"
+											preserveAspectRatio="none"
+											aria-hidden="true"
 										>
-											{formatPct(centeringStats.rightPct)}
-										</span>
+											<line
+												x1="1"
+												y1="0"
+												x2="1"
+												y2="100"
+												stroke="rgb(82 82 91 / 0.6)"
+												stroke-width="1"
+												vector-effect="non-scaling-stroke"
+												shape-rendering="crispEdges"
+											/>
+										</svg>
 									</div>
 								</div>
 							</div>
