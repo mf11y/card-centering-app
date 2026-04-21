@@ -1941,7 +1941,9 @@
 											<div class="text-sm text-zinc-400">Left</div>
 											<div
 												class={`mt-2 text-2xl font-semibold ${
-													centeringStats.topPct > ALERT_THRESHOLD ? 'text-red-400' : 'text-zinc-100'
+													centeringStats.leftPct > ALERT_THRESHOLD
+														? 'text-red-400'
+														: 'text-zinc-100'
 												}`}
 											>
 												{formatPct(centeringStats.leftPct)}
@@ -1952,7 +1954,7 @@
 											<div class="text-sm text-zinc-400">Right</div>
 											<div
 												class={`mt-2 text-2xl font-semibold ${
-													centeringStats.bottomPct > ALERT_THRESHOLD
+													centeringStats.rightPct > ALERT_THRESHOLD
 														? 'text-red-400'
 														: 'text-zinc-100'
 												}`}
