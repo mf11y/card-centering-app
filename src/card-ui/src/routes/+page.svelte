@@ -85,6 +85,8 @@
 	let showUploadButton = $state(true);
 	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	let isDark = $state(true);
+
 	$effect(() => {
 		const shouldShow = !imageReadyForControls || isSegmenting;
 
@@ -1864,16 +1866,28 @@
 				<section
 					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
-					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-2">
+					<div class="flex items-center border-b border-zinc-800 px-5 py-4">
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">
 								Warp Preview
 							</h2>
 							<p class="text-xs text-zinc-500">Live output from current corner positions</p>
 						</div>
+
+						<button
+							class="ml-auto mr-1 text-xl transition-transform hover:scale-110 active:scale-95"
+							onclick={() => (isDark = !isDark)}
+							type="button"
+						>
+							{isDark ? '☀️' : '🌙'}
+						</button>
 					</div>
 
-					<div class="flex flex-col gap-4 p-5">
+					<div
+						class={`flex flex-col gap-4 p-5 transition-colors duration-300 ${
+							isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white text-zinc-900'
+						}`}
+					>
 						<!-- Centering Metrics -->
 						<div class="grid shrink-0 grid-cols-2 gap-4 text-sm">
 							<!-- Vertical Centering -->
@@ -1988,7 +2002,7 @@
 						<!-- Warp Image -->
 						<div class="grid place-items-center overflow-hidden">
 							<div
-								class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] border border-dashed border-zinc-700 bg-zinc-950"
+								class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] bg-zinc-950"
 								bind:this={warpContainerEl}
 								role="button"
 								tabindex="0"
@@ -2031,7 +2045,7 @@
 												x2={warpDisplayedImageRect.width}
 												y2={guideInsetsPx.top}
 												stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
-												stroke-width="3"
+												stroke-width="2"
 												stroke-dasharray="10 8"
 												stroke-linecap="round"
 												vector-effect="non-scaling-stroke"
@@ -2044,7 +2058,7 @@
 												x2={warpDisplayedImageRect.width}
 												y2={warpDisplayedImageRect.height - guideInsetsPx.bottom}
 												stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
-												stroke-width="3"
+												stroke-width="2"
 												stroke-dasharray="10 8"
 												stroke-linecap="round"
 												vector-effect="non-scaling-stroke"
@@ -2057,7 +2071,7 @@
 												x2={guideInsetsPx.left}
 												y2={warpDisplayedImageRect.height}
 												stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
-												stroke-width="3"
+												stroke-width="2"
 												stroke-dasharray="10 8"
 												stroke-linecap="round"
 												vector-effect="non-scaling-stroke"
@@ -2070,7 +2084,7 @@
 												x2={warpDisplayedImageRect.width - guideInsetsPx.right}
 												y2={warpDisplayedImageRect.height}
 												stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
-												stroke-width="3"
+												stroke-width="2"
 												stroke-dasharray="10 8"
 												stroke-linecap="round"
 												vector-effect="non-scaling-stroke"
