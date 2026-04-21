@@ -1414,10 +1414,15 @@
 
 				const outIdx = (y * outWidth + x) * 4;
 
-				const clampedX = Math.max(0, Math.min(sw - 1.001, srcPt.x));
-				const clampedY = Math.max(0, Math.min(sh - 1.001, srcPt.y));
+				if (srcPt.x < 0 || srcPt.x >= sw - 1 || srcPt.y < 0 || srcPt.y >= sh - 1) {
+					outData[outIdx + 0] = 0;
+					outData[outIdx + 1] = 0;
+					outData[outIdx + 2] = 0;
+					outData[outIdx + 3] = 0;
+					continue;
+				}
 
-				const [r, g, b, a] = sampleBilinear(srcData, sw, sh, clampedX, clampedY);
+				const [r, g, b, a] = sampleBilinear(srcData, sw, sh, srcPt.x, srcPt.y);
 				outData[outIdx + 0] = Math.round(r);
 				outData[outIdx + 1] = Math.round(g);
 				outData[outIdx + 2] = Math.round(b);
@@ -1426,7 +1431,7 @@
 		}
 
 		outCtx.putImageData(outImage, 0, 0);
-		return outCanvas.toDataURL('image/jpeg', 0.95);
+		return outCanvas.toDataURL('image/png');
 	}
 </script>
 
@@ -1584,8 +1589,11 @@
 															? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
 															: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
 													}`}
-													onclick={() =>
-														moveCorner(corner.id as keyof typeof corners, 0, -stepSize)}
+													onclick={() => {
+														activeCorner = corner.id as keyof typeof corners;
+														activeGuide = null;
+														moveCorner(corner.id as keyof typeof corners, 0, -stepSize);
+													}}
 												>
 													↑
 												</button>
@@ -1598,11 +1606,15 @@
 															? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
 															: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
 													}`}
-													onclick={() =>
-														moveCorner(corner.id as keyof typeof corners, -stepSize, 0)}
+													onclick={() => {
+														activeCorner = corner.id as keyof typeof corners;
+														activeGuide = null;
+														moveCorner(corner.id as keyof typeof corners, -stepSize, 0);
+													}}
 												>
 													←
 												</button>
+
 												<button
 													aria-label={`Toggle ${corner.label} arrow control`}
 													class={`flex items-center justify-center rounded-xl border transition ${
@@ -1620,6 +1632,7 @@
 														}`}
 													></div>
 												</button>
+
 												<button
 													class={`rounded-xl border px-2 py-2 text-sm transition ${
 														activeDirection === 'right' &&
@@ -1627,7 +1640,11 @@
 															? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
 															: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
 													}`}
-													onclick={() => moveCorner(corner.id as keyof typeof corners, stepSize, 0)}
+													onclick={() => {
+														activeCorner = corner.id as keyof typeof corners;
+														activeGuide = null;
+														moveCorner(corner.id as keyof typeof corners, stepSize, 0);
+													}}
 												>
 													→
 												</button>
@@ -1640,7 +1657,11 @@
 															? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
 															: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
 													}`}
-													onclick={() => moveCorner(corner.id as keyof typeof corners, 0, stepSize)}
+													onclick={() => {
+														activeCorner = corner.id as keyof typeof corners;
+														activeGuide = null;
+														moveCorner(corner.id as keyof typeof corners, 0, stepSize);
+													}}
 												>
 													↓
 												</button>
@@ -2015,15 +2036,7 @@
 								}}
 							>
 								{#if warpedImageUrl}
-									<div
-										class="absolute inset-0 overflow-hidden"
-										style={`
-										left: ${warpDisplayedImageRect.x}px;
-										top: ${warpDisplayedImageRect.y}px;
-										width: ${warpDisplayedImageRect.width}px;
-										height: ${warpDisplayedImageRect.height}px;
-									`}
-									>
+									<div class="absolute inset-0 overflow-hidden">
 										<img
 											bind:this={warpImageEl}
 											src={warpedImageUrl}
