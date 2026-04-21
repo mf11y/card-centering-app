@@ -996,7 +996,7 @@
 
 								<p>
 									This tool helps you analyze Pokemon TCG centering by auto-detecting edges and
-									measuring border spacing. 
+									measuring border spacing.
 								</p>
 
 								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
@@ -1005,9 +1005,15 @@
 
 								<ul class="list-disc space-y-1 pl-5">
 									<li>Upload a card image to begin detection</li>
-									<li>Click on corners of second panel to adjust lines to sides of card. WASD, arrow pads, or directional keys can be used to adjust.</li>
+									<li>
+										Click on corners of second panel to adjust lines to sides of card. WASD, arrow
+										pads, or directional keys can be used to adjust.
+									</li>
 									<li>Use the warp preview to verify alignment</li>
-									<li>Check centering percentages. % Turns red when the border ratio exceeds PSA 10 standards.</li>
+									<li>
+										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
+										standards.
+									</li>
 									<li>Day/Night mode in the warp preview can be used to help find border edge.</li>
 								</ul>
 
@@ -1176,11 +1182,7 @@
 															type="button"
 															aria-label={`Toggle ${corner.key} arrow control`}
 															aria-pressed={activeCorner === corner.key}
-															class={`absolute z-10 h-7 w-7 transition ${
-																activeCorner === corner.key
-																	? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
-																	: 'text-cyan-400 hover:text-green-300'
-															}`}
+															class="absolute z-10 flex h-10 w-10 items-center justify-center"
 															style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
 															style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
 															style:transform={corner.key === 'topLeft'
@@ -1195,28 +1197,36 @@
 																toggleCornerActive(corner.key);
 															}}
 														>
-															<svg
-																viewBox="0 0 24 24"
-																fill="none"
-																stroke="currentColor"
-																stroke-width="2.25"
-																stroke-linecap="round"
-																stroke-linejoin="round"
-																class={`h-full w-full ${
-																	corner.key === 'topLeft'
-																		? 'rotate-180'
-																		: corner.key === 'topRight'
-																			? '-rotate-90'
-																			: corner.key === 'bottomRight'
-																				? 'rotate-0'
-																				: 'rotate-90'
+															<div
+																class={`h-7 w-7 transition ${
+																	activeCorner === corner.key
+																		? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
+																		: 'text-cyan-400 hover:text-green-300'
 																}`}
-																aria-hidden="true"
 															>
-																<path d="M19 19L5 5" />
-																<path d="M5 11V5H11" />
-															</svg>
-														</button>
+																<svg
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2.25"
+																	stroke-linecap="round"
+																	stroke-linejoin="round"
+																	class={`h-full w-full ${
+																		corner.key === 'topLeft'
+																			? 'rotate-180'
+																			: corner.key === 'topRight'
+																				? '-rotate-90'
+																				: corner.key === 'bottomRight'
+																					? 'rotate-0'
+																					: 'rotate-90'
+																	}`}
+																	aria-hidden="true"
+																>
+																	<path d="M19 19L5 5" />
+																	<path d="M5 11V5H11" />
+																</svg>
+															</div></button
+														>
 													{/each}
 												</div>
 											</div>
