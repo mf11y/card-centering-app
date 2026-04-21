@@ -1,16 +1,31 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import { onMount, onDestroy } from 'svelte';
-	import { flip } from 'svelte/animate';
-
-	const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000/api';
-
-	const cornerPads = [
-		{ id: 'topLeft', label: 'Top Left' },
-		{ id: 'topRight', label: 'Top Right' },
-		{ id: 'bottomLeft', label: 'Bottom Left' },
-		{ id: 'bottomRight', label: 'Bottom Right' }
-	];
+	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
+	import type { Quad } from '../lib/card-centering/geometry';
+	import { warpImageToDataUrl } from '../lib/card-centering/warp';
+	import {
+	cornerPads,
+	STEP_VALUES,
+	PAGE_ZOOM_VALUES,
+	ZOOM_VALUES,
+	ALERT_THRESHOLD,
+	cornerOverlayItems
+	} from '../lib/card-centering/constants';
+	import { snapGuideDisplayPx, formatPct } from '../lib/card-centering/format';
+	import { inferCorners, getSegmentationMaskUrl } from '../lib/card-centering/api';
+	import {
+	computeZoomMetrics,
+	getZoomStyle,
+	} from '../lib/card-centering/view';
+	import {
+	getCenteringStats,
+	type GuideKey
+	} from '../lib/card-centering/centering';
+	import {
+	handleInputKeydown,
+	handleInputKeyup,
+	type Direction
+	} from '../lib/card-centering/input';
 
 	let imageFile = $state<File | null>(null);
 	let imageUrl = $state('');
@@ -29,13 +44,11 @@
 
 	let activeCorner = $state<keyof typeof corners | null>(null);
 
-	let activeDirection = $state<'up' | 'down' | 'left' | 'right' | null>(null);
+	let activeDirection = $state<Direction | null>(null);
 
 	let isSegmenting = $state(false);
 	let segmentationResult = $state<any>(null);
 	let segmentationError = $state('');
-
-	const STEP_VALUES = [0.25, 0.5, 1, 2, 5];
 
 	let stepSizeFlash = $state(false);
 	let stepSizeFlashTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -49,15 +62,6 @@
 
 	let warpPreviewTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	let centeringMetrics = $state({
-		topInsetPct: 6,
-		bottomInsetPct: 6,
-		leftInsetPct: 6,
-		rightInsetPct: 6
-	});
-
-	type GuideKey = 'top' | 'bottom' | 'left' | 'right';
-
 	let activeGuide = $state<GuideKey | null>(null);
 
 	let guideInsetsPx = $state({
@@ -70,7 +74,6 @@
 	let warpContainerEl = $state.raw<HTMLDivElement | null>(null);
 	let warpImageEl = $state.raw<HTMLImageElement | null>(null);
 
-	let warpContainerSize = $state({ width: 1, height: 1 });
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 
 	let frozenZoom = $state<{
@@ -150,48 +153,8 @@
 		pageZoom = 1;
 	}
 
-	function snapGuideDisplayPx(value: number) {
-		return Math.round(value * 2) / 2;
-	}
-
-	const GUIDE_STEP = 1;
 
 	let pageZoom = $state(1);
-
-	const PAGE_ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
-
-	function applyPageZoom(direction: 1 | -1) {
-		const currentIndex = PAGE_ZOOM_VALUES.findIndex((v) => Math.abs(v - pageZoom) < 0.001);
-		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
-
-		const nextIndex = Math.max(0, Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction));
-
-		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
-	}
-
-	function zoomPageIn() {
-		applyPageZoom(1);
-	}
-
-	function zoomPageOut() {
-		applyPageZoom(-1);
-	}
-
-	const centeringGuides = [
-		{ id: 'top', orientation: 'horizontal' },
-		{ id: 'bottom', orientation: 'horizontal' },
-		{ id: 'left', orientation: 'vertical' },
-		{ id: 'right', orientation: 'vertical' }
-	] as const;
-
-	const cornerOverlayItems = [
-		{ key: 'topLeft', label: '' },
-		{ key: 'topRight', label: '' },
-		{ key: 'bottomLeft', label: '' },
-		{ key: 'bottomRight', label: '' }
-	] as const;
-
-	const ALERT_THRESHOLD = 56;
 
 	function clearActiveSelection() {
 		activeGuide = null;
@@ -205,86 +168,6 @@
 	let zoomLevel = $state(1);
 
 	let imageReadyForControls = $state(false);
-
-	const ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
-
-	function applyZoomDelta(direction: 1 | -1) {
-		const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
-		const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
-		const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
-
-		zoomLevel = ZOOM_VALUES[nextIndex];
-
-		if (zoomLevel === 1) {
-			frozenStage = null;
-			frozenZoom = null;
-			autoZoomToCorners = false;
-			return;
-		}
-
-		if (!imageEl) return;
-
-		const naturalWidth = imageEl.naturalWidth || 1;
-		const naturalHeight = imageEl.naturalHeight || 1;
-
-		const centerX =
-			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
-
-		const centerY =
-			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
-
-		frozenStage = null;
-
-		frozenZoom = {
-			scale: zoomLevel,
-			centerXNorm: centerX / naturalWidth,
-			centerYNorm: centerY / naturalHeight
-		};
-
-		autoZoomToCorners = false;
-	}
-
-	function setSegmentationMaskFromResult(result: any) {
-		if (segmentationMaskUrl?.startsWith('blob:')) {
-			URL.revokeObjectURL(segmentationMaskUrl);
-		}
-		segmentationMaskUrl = '';
-
-		// supports:
-		// result.mask_data_url
-		// result.mask_base64
-		// result.mask_png_base64
-		// result.mask_url
-		if (
-			typeof result?.mask_data_url === 'string' &&
-			result.mask_data_url.startsWith('data:image/')
-		) {
-			segmentationMaskUrl = result.mask_data_url;
-			return;
-		}
-
-		if (typeof result?.mask_base64 === 'string' && result.mask_base64.length > 0) {
-			segmentationMaskUrl = `data:image/png;base64,${result.mask_base64}`;
-			return;
-		}
-
-		if (typeof result?.mask_png_base64 === 'string' && result.mask_png_base64.length > 0) {
-			segmentationMaskUrl = `data:image/png;base64,${result.mask_png_base64}`;
-			return;
-		}
-
-		if (typeof result?.mask_url === 'string' && result.mask_url.length > 0) {
-			segmentationMaskUrl = result.mask_url;
-		}
-	}
-
-	function zoomIn() {
-		applyZoomDelta(1);
-	}
-
-	function zoomOut() {
-		applyZoomDelta(-1);
-	}
 
 	function imageXToPercent(x: number) {
 		return `${(x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`;
@@ -375,102 +258,20 @@
 		};
 	}
 
-	function updateDisplayedImageRect() {
-		if (!containerEl || !imageEl) return;
-
-		const containerWidth = containerSize.width;
-		const containerHeight = containerSize.height;
-
-		const naturalWidth = imageEl.naturalWidth;
-		const naturalHeight = imageEl.naturalHeight;
-
-		if (!naturalWidth || !naturalHeight) return;
-
-		const imageAspect = naturalWidth / naturalHeight;
-
-		if (frozenStage) {
-			const width = frozenStage.width;
-			const height = frozenStage.height;
-			const x = (containerWidth - width) / 2;
-			const y = (containerHeight - height) / 2;
-			displayedImageRect = { x, y, width, height };
-			return;
-		}
-
-		const maxStageWidth = Math.min(containerWidth, 720);
-		const maxStageHeight = Math.min(containerHeight, 960);
-
-		let width = maxStageWidth;
-		let height = width / imageAspect;
-
-		if (height > maxStageHeight) {
-			height = maxStageHeight;
-			width = height * imageAspect;
-		}
-
-		const x = (containerWidth - width) / 2;
-		const y = (containerHeight - height) / 2;
-
-		displayedImageRect = { x, y, width, height };
-	}
-
-	function orderCorners(corners: Point[]): [Point, Point, Point, Point] {
-		// compute center
-		const cx = corners.reduce((sum, p) => sum + p.x, 0) / 4;
-		const cy = corners.reduce((sum, p) => sum + p.y, 0) / 4;
-
-		// sort by angle around center
-		const sorted = [...corners].sort((a, b) => {
-			const angleA = Math.atan2(a.y - cy, a.x - cx);
-			const angleB = Math.atan2(b.y - cy, b.x - cx);
-			return angleA - angleB;
-		});
-
-		// now assign based on position
-		let tl = sorted[0];
-		let tr = sorted[1];
-		let br = sorted[2];
-		let bl = sorted[3];
-
-		// fix orientation (ensure TL is actually top-left)
-		const byY = [...sorted].sort((a, b) => a.y - b.y);
-		const top = byY.slice(0, 2);
-		const bottom = byY.slice(2, 4);
-
-		const [topLeft, topRight] = top.sort((a, b) => a.x - b.x);
-		const [bottomLeft, bottomRight] = bottom.sort((a, b) => a.x - b.x);
-
-		return [topLeft, topRight, bottomRight, bottomLeft];
-	}
-
-	function ensureClockwise(corners: [Point, Point, Point, Point]): [Point, Point, Point, Point] {
-		const [tl, tr, br, bl] = corners;
-
-		const cross = (tr.x - tl.x) * (bl.y - tl.y) - (tr.y - tl.y) * (bl.x - tl.x);
-
-		// if cross < 0 → points are flipped → fix it
-		if (cross < 0) {
-			return [tl, bl, br, tr]; // swap orientation
-		}
-
-		return corners;
-	}
-
 	function runWarpPreview() {
 		if (!imageEl) return;
 
 		const backendCorners = getCornersForBackend();
 		if (!backendCorners) return;
 
-		const unordered = [
+		const unordered: Quad = [
 			{ x: backendCorners[0].x, y: backendCorners[0].y },
 			{ x: backendCorners[1].x, y: backendCorners[1].y },
 			{ x: backendCorners[2].x, y: backendCorners[2].y },
 			{ x: backendCorners[3].x, y: backendCorners[3].y }
 		];
 
-		let corners = orderCorners(unordered);
-		corners = ensureClockwise(corners);
+		const corners = ensureClockwise(orderCorners(unordered));
 
 		try {
 			const nextUrl = warpImageToDataUrl(imageEl, corners);
@@ -580,7 +381,13 @@
 			activeCorner = cornerKey;
 			activeGuide = null;
 			if (!frozenZoom && zoomLevel === 1) {
-				const z = computeZoomMetrics();
+				const z = computeZoomMetrics({
+				autoZoomToCorners,
+				displayedImageRect,
+				naturalWidth: imageEl?.naturalWidth || 1,
+				naturalHeight: imageEl?.naturalHeight || 1,
+				corners
+			});
 
 				const naturalWidth = imageEl?.naturalWidth || 1;
 				const naturalHeight = imageEl?.naturalHeight || 1;
@@ -606,77 +413,33 @@
 		if (!activeCorner) return;
 		moveCorner(activeCorner, dx, dy);
 	}
+
 	function handleKeydown(event: KeyboardEvent) {
-		const target = event.target as HTMLElement | null;
-		const tag = target?.tagName;
+		handleInputKeydown(event, {
+			getHasActiveCorner: () => activeCorner !== null,
+			getHasActiveGuide: () => activeGuide !== null,
+			getStepSize: () => stepSize,
 
-		if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-
-		const key = event.key.toLowerCase();
-
-		switch (key) {
-			case 'escape':
+			clearSelection: () => {
 				activeCorner = null;
 				activeGuide = null;
-				activeDirection = null;
-				return;
+			},
 
-			case 'arrowup':
-			case 'w':
-				if (!activeCorner && !activeGuide) return;
-				event.preventDefault();
-				(document.activeElement as HTMLElement | null)?.blur();
-				activeDirection = 'up';
-				if (activeCorner) {
-					moveActiveCorner(0, -stepSize);
-				} else if (activeGuide) {
-					moveActiveGuide('up');
-				}
-				break;
+			setActiveDirection: (direction) => {
+				activeDirection = direction;
+			},
 
-			case 'arrowdown':
-			case 's':
-				if (!activeCorner && !activeGuide) return;
-				event.preventDefault();
-				(document.activeElement as HTMLElement | null)?.blur();
-				activeDirection = 'down';
-				if (activeCorner) {
-					moveActiveCorner(0, stepSize);
-				} else if (activeGuide) {
-					moveActiveGuide('down');
-				}
-				break;
-
-			case 'arrowleft':
-			case 'a':
-				if (!activeCorner && !activeGuide) return;
-				event.preventDefault();
-				(document.activeElement as HTMLElement | null)?.blur();
-				activeDirection = 'left';
-				if (activeCorner) {
-					moveActiveCorner(-stepSize, 0);
-				} else if (activeGuide) {
-					moveActiveGuide('left');
-				}
-				break;
-
-			case 'arrowright':
-			case 'd':
-				if (!activeCorner && !activeGuide) return;
-				event.preventDefault();
-				(document.activeElement as HTMLElement | null)?.blur();
-				activeDirection = 'right';
-				if (activeCorner) {
-					moveActiveCorner(stepSize, 0);
-				} else if (activeGuide) {
-					moveActiveGuide('right');
-				}
-				break;
-		}
+			moveActiveCorner,
+			moveActiveGuide
+		});
 	}
 
 	function handleKeyup() {
-		activeDirection = null;
+		handleInputKeyup({
+			setActiveDirection: (direction) => {
+				activeDirection = direction;
+			}
+		});
 	}
 
 	function flashStepSize() {
@@ -730,152 +493,10 @@
 		corners = mapped;
 	}
 
-	type Point = { x: number; y: number };
 
-	function distance(a: Point, b: Point) {
-		return Math.hypot(b.x - a.x, b.y - a.y);
-	}
 
-	function computeWarpOutputSize(
-		tl: Point,
-		tr: Point,
-		br: Point,
-		bl: Point,
-		targetAspect = 63 / 88
-	) {
-		const widthTop = distance(tl, tr);
-		const widthBottom = distance(bl, br);
-		const heightLeft = distance(tl, bl);
-		const heightRight = distance(tr, br);
-
-		const width = (widthTop + widthBottom) / 2;
-		const height = (heightLeft + heightRight) / 2;
-
-		let outW = width;
-		let outH = height;
-
-		const currentAspect = width / height;
-
-		if (!Number.isFinite(currentAspect) || !Number.isFinite(width) || !Number.isFinite(height)) {
-			return { width: 360, height: 504 };
-		}
-
-		if (currentAspect > targetAspect) {
-			outH = outW / targetAspect;
-		} else {
-			outW = outH * targetAspect;
-		}
-
-		const safeWidth = Math.max(1, Math.round(outW));
-		const safeHeight = Math.max(1, Math.round(outH));
-
-		return {
-			width: safeWidth,
-			height: safeHeight
-		};
-	}
-
-	function drawImageTriangle(
-		ctx: CanvasRenderingContext2D,
-		image: CanvasImageSource,
-		s0: Point,
-		s1: Point,
-		s2: Point,
-		d0: Point,
-		d1: Point,
-		d2: Point
-	) {
-		ctx.save();
-
-		ctx.beginPath();
-		ctx.moveTo(d0.x, d0.y);
-		ctx.lineTo(d1.x, d1.y);
-		ctx.lineTo(d2.x, d2.y);
-		ctx.closePath();
-		ctx.clip();
-
-		const sx1 = s1.x - s0.x;
-		const sy1 = s1.y - s0.y;
-		const sx2 = s2.x - s0.x;
-		const sy2 = s2.y - s0.y;
-
-		const dx1 = d1.x - d0.x;
-		const dy1 = d1.y - d0.y;
-		const dx2 = d2.x - d0.x;
-		const dy2 = d2.y - d0.y;
-
-		const det = sx1 * sy2 - sy1 * sx2;
-		if (Math.abs(det) < 1e-8) {
-			ctx.restore();
-			return;
-		}
-
-		const a = (dx1 * sy2 - dx2 * sy1) / det;
-		const b = (dy1 * sy2 - dy2 * sy1) / det;
-		const c = (dx2 * sx1 - dx1 * sx2) / det;
-		const d = (dy2 * sx1 - dy1 * sx2) / det;
-		const e = d0.x - a * s0.x - c * s0.y;
-		const f = d0.y - b * s0.x - d * s0.y;
-
-		ctx.setTransform(a, b, c, d, e, f);
-		ctx.drawImage(image, 0, 0);
-
-		ctx.restore();
-	}
-
-	async function compressImageForApiIfNeeded(file: File, maxBytes = 300_000): Promise<File> {
-		if (file.size <= maxBytes) return file;
-
-		const img = new Image();
-		const objectUrl = URL.createObjectURL(file);
-
-		try {
-			await new Promise<void>((resolve, reject) => {
-				img.onload = () => resolve();
-				img.onerror = () => reject(new Error('Failed to load image for compression'));
-				img.src = objectUrl;
-			});
-
-			const canvas = document.createElement('canvas');
-			const ctx = canvas.getContext('2d');
-
-			if (!ctx) return file;
-
-			const width = img.naturalWidth;
-			const height = img.naturalHeight;
-
-			canvas.width = width;
-			canvas.height = height;
-
-			ctx.drawImage(img, 0, 0, width, height);
-
-			let quality = 0.9;
-			let blob: Blob | null = null;
-
-			for (let i = 0; i < 8; i++) {
-				blob = await new Promise<Blob | null>((resolve) => {
-					canvas.toBlob(resolve, 'image/jpeg', quality);
-				});
-
-				if (!blob) return file;
-				if (blob.size <= maxBytes) break;
-
-				quality -= 0.08;
-			}
-
-			if (!blob) return file;
-
-			return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), {
-				type: 'image/jpeg'
-			});
-		} finally {
-			URL.revokeObjectURL(objectUrl);
-		}
-	}
 
 	async function runSegmentationInBrowser() {
-		console.log('API_BASE:', API_BASE);
-
 		if (!imageFile || !imageEl) return;
 
 		isSegmenting = true;
@@ -883,23 +504,12 @@
 		segmentationResult = null;
 
 		try {
-			const apiFile = await compressImageForApiIfNeeded(imageFile);
-			const formData = new FormData();
-			formData.append('file', apiFile);
+			const result = await inferCorners(imageFile);
 
-			const response = await fetch(`${API_BASE}/infer-json`, {
-				method: 'POST',
-				body: formData
-			});
-
-			if (!response.ok) {
-				const text = await response.text();
-				throw new Error(text || 'Inference request failed');
+			if (segmentationMaskUrl?.startsWith('blob:')) {
+				URL.revokeObjectURL(segmentationMaskUrl);
 			}
-
-			const result = await response.json();
-
-			setSegmentationMaskFromResult(result);
+			segmentationMaskUrl = getSegmentationMaskUrl(result);
 
 			console.log('API corners raw', result.corners);
 
@@ -922,7 +532,13 @@
 				frozenZoom = null;
 
 				requestAnimationFrame(() => {
-					const z = computeZoomMetrics();
+					const z = computeZoomMetrics({
+					autoZoomToCorners,
+					displayedImageRect,
+					naturalWidth: imageEl?.naturalWidth || 1,
+					naturalHeight: imageEl?.naturalHeight || 1,
+					corners
+				});
 
 					const naturalWidth = imageEl?.naturalWidth || 1;
 					const naturalHeight = imageEl?.naturalHeight || 1;
@@ -958,8 +574,6 @@
 				frozenStage = null;
 			}
 
-			// wait one frame so corners/rendered image rect are updated, then freeze
-
 			segmentationResult = {
 				ok: true,
 				refine_score: result.refine_score ?? null
@@ -973,32 +587,7 @@
 		}
 	}
 
-	function getZoomStyle() {
-		const { scale, tx, ty } = getZoomMetrics();
-		return `transform-origin: top left; transform: translate(${tx}px, ${ty}px) scale(${scale});`;
-	}
 
-	function getZoomMetrics() {
-		if (frozenZoom) {
-			const centerX = frozenZoom.centerXNorm * displayedImageRect.width;
-			const centerY = frozenZoom.centerYNorm * displayedImageRect.height;
-
-			const tx = displayedImageRect.width / 2 - centerX * frozenZoom.scale;
-			const ty = displayedImageRect.height / 2 - centerY * frozenZoom.scale;
-
-			return {
-				scale: frozenZoom.scale,
-				tx,
-				ty
-			};
-		}
-
-		if (!autoZoomToCorners || !displayedImageRect.width || !displayedImageRect.height) {
-			return { scale: 1, tx: 0, ty: 0 };
-		}
-
-		return computeZoomMetrics();
-	}
 
 	function getCornersForBackend() {
 		return [
@@ -1052,58 +641,12 @@
 		}
 	}
 
-	function getGuideLineStyle(guideId: GuideKey) {
-		const topPx = snapGuideDisplayPx(guideInsetsPx.top);
-		const bottomPx = snapGuideDisplayPx(guideInsetsPx.bottom);
-		const leftPx = snapGuideDisplayPx(guideInsetsPx.left);
-		const rightPx = snapGuideDisplayPx(guideInsetsPx.right);
-
-		if (guideId === 'top') {
-			return `
-				top: ${topPx}px;
-				left: 0;
-				width: 100%;
-				height: 40px;
-				transform: translateY(-50%);
-			`;
-		}
-
-		if (guideId === 'bottom') {
-			return `
-				top: ${snapGuideDisplayPx(warpDisplayedImageRect.height - bottomPx)}px;
-				left: 0;
-				width: 100%;
-				height: 40px;
-				transform: translateY(-50%);
-			`;
-		}
-
-		if (guideId === 'left') {
-			return `
-				left: ${leftPx}px;
-				top: 0;
-				width: 40px;
-				height: 100%;
-				transform: translateX(-50%);
-			`;
-		}
-
-		return `
-			left: ${snapGuideDisplayPx(warpDisplayedImageRect.width - rightPx)}px;
-			top: 0;
-			width: 40px;
-			height: 100%;
-			transform: translateX(-50%);
-		`;
-	}
-
 	function updateWarpDisplayedImageRect() {
 		if (!warpContainerEl) return;
 
 		const width = warpContainerEl.clientWidth;
 		const height = warpContainerEl.clientHeight;
 
-		warpContainerSize = { width, height };
 		warpBoxSize = { width, height };
 
 		warpDisplayedImageRect = {
@@ -1114,328 +657,120 @@
 		};
 	}
 
-	function formatPct(value: number) {
-		return `${value.toFixed(1)}%`;
+
+	const centeringStats = $derived(getCenteringStats(guideInsetsPx));
+
+function zoomPageIn() {
+    applyPageZoom(1);
+}
+
+function zoomPageOut() {
+    applyPageZoom(-1);
+}
+
+function applyZoomDelta(direction: 1 | -1) {
+    const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
+    const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
+    const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
+
+    zoomLevel = ZOOM_VALUES[nextIndex];
+
+    if (zoomLevel === 1) {
+        frozenStage = null;
+        frozenZoom = null;
+        autoZoomToCorners = false;
+        return;
+    }
+
+    if (!imageEl) return;
+
+    const naturalWidth = imageEl.naturalWidth || 1;
+    const naturalHeight = imageEl.naturalHeight || 1;
+
+    const centerX =
+        (corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
+
+    const centerY =
+        (corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
+
+    frozenStage = null;
+
+    frozenZoom = {
+        scale: zoomLevel,
+        centerXNorm: centerX / naturalWidth,
+        centerYNorm: centerY / naturalHeight
+    };
+
+    autoZoomToCorners = false;
+}
+
+	function updateDisplayedImageRect() {
+	if (!containerEl || !imageEl) return;
+
+	const containerWidth = containerSize.width;
+	const containerHeight = containerSize.height;
+
+	const naturalWidth = imageEl.naturalWidth;
+	const naturalHeight = imageEl.naturalHeight;
+
+	if (!naturalWidth || !naturalHeight) return;
+
+	const imageAspect = naturalWidth / naturalHeight;
+
+	if (frozenStage) {
+		const width = frozenStage.width;
+		const height = frozenStage.height;
+		const x = (containerWidth - width) / 2;
+		const y = (containerHeight - height) / 2;
+		displayedImageRect = { x, y, width, height };
+		return;
 	}
 
-	function formatRatio(a: number, b: number) {
-		if (a <= 0 || b <= 0) return '--';
-		const ratio = a > b ? a / b : b / a;
-		return ratio.toFixed(2);
+	const maxStageWidth = Math.min(containerWidth, 720);
+	const maxStageHeight = Math.min(containerHeight, 960);
+
+	let width = maxStageWidth;
+	let height = width / imageAspect;
+
+	if (height > maxStageHeight) {
+		height = maxStageHeight;
+		width = height * imageAspect;
 	}
 
-	function computeZoomMetrics() {
-		if (!autoZoomToCorners || !displayedImageRect.width || !displayedImageRect.height) {
-			return { scale: 1, tx: 0, ty: 0 };
-		}
+	const x = (containerWidth - width) / 2;
+	const y = (containerHeight - height) / 2;
 
-		const naturalWidth = imageEl?.naturalWidth || 1;
-		const naturalHeight = imageEl?.naturalHeight || 1;
-
-		const xs = [
-			(corners.topLeft.x / naturalWidth) * displayedImageRect.width,
-			(corners.topRight.x / naturalWidth) * displayedImageRect.width,
-			(corners.bottomRight.x / naturalWidth) * displayedImageRect.width,
-			(corners.bottomLeft.x / naturalWidth) * displayedImageRect.width
-		];
-
-		const ys = [
-			(corners.topLeft.y / naturalHeight) * displayedImageRect.height,
-			(corners.topRight.y / naturalHeight) * displayedImageRect.height,
-			(corners.bottomRight.y / naturalHeight) * displayedImageRect.height,
-			(corners.bottomLeft.y / naturalHeight) * displayedImageRect.height
-		];
-
-		const minX = Math.min(...xs);
-		const maxX = Math.max(...xs);
-		const minY = Math.min(...ys);
-		const maxY = Math.max(...ys);
-
-		const boxWidth = Math.max(1, maxX - minX);
-		const boxHeight = Math.max(1, maxY - minY);
-
-		// use a capped reference viewport so big screens don't increase auto-zoom
-		const refWidth = Math.min(displayedImageRect.width, 520);
-		const refHeight = Math.min(displayedImageRect.height, 760);
-
-		const currentWidthFrac = boxWidth / refWidth;
-		const currentHeightFrac = boxHeight / refHeight;
-
-		// if the card already fills most of the reference viewport, don't zoom
-		if (currentWidthFrac > 0.72 || currentHeightFrac > 0.72) {
-			return { scale: 1, tx: 0, ty: 0 };
-		}
-
-		const targetWidthFrac = 0.68;
-		const targetHeightFrac = 0.7;
-
-		const scaleX = (refWidth * targetWidthFrac) / boxWidth;
-		const scaleY = (refHeight * targetHeightFrac) / boxHeight;
-
-		let scale = Math.min(scaleX, scaleY);
-		scale = Math.max(1, scale);
-
-		const centerX = (minX + maxX) / 2;
-		const centerY = (minY + maxY) / 2;
-
-		const handleMargin = 34;
-
-		for (let i = 0; i < 10; i++) {
-			const txTry = displayedImageRect.width / 2 - centerX * scale;
-			const tyTry = displayedImageRect.height / 2 - centerY * scale;
-
-			const screenPts = [
-				{ x: xs[0] * scale + txTry, y: ys[0] * scale + tyTry },
-				{ x: xs[1] * scale + txTry, y: ys[1] * scale + tyTry },
-				{ x: xs[2] * scale + txTry, y: ys[2] * scale + tyTry },
-				{ x: xs[3] * scale + txTry, y: ys[3] * scale + tyTry }
-			];
-
-			const allVisible = screenPts.every(
-				(p) =>
-					p.x >= handleMargin &&
-					p.x <= displayedImageRect.width - handleMargin &&
-					p.y >= handleMargin &&
-					p.y <= displayedImageRect.height - handleMargin
-			);
-
-			if (allVisible) {
-				return { scale, tx: txTry, ty: tyTry };
-			}
-
-			scale *= 0.92;
-			if (scale <= 1.001) break;
-		}
-
-		const tx = displayedImageRect.width / 2 - centerX * scale;
-		const ty = displayedImageRect.height / 2 - centerY * scale;
-
-		return { scale: Math.max(1, scale), tx, ty };
+	displayedImageRect = { x, y, width, height };
 	}
 
-	const centeringStats = $derived(getCenteringStats());
+	function applyPageZoom(direction: 1 | -1) {
+		const currentIndex = PAGE_ZOOM_VALUES.findIndex((v) => Math.abs(v - pageZoom) < 0.001);
+		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
 
-	function getCenteringStats() {
-		const top = guideInsetsPx.top;
-		const bottom = guideInsetsPx.bottom;
-		const left = guideInsetsPx.left;
-		const right = guideInsetsPx.right;
+		const nextIndex = Math.max(0, Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction));
 
-		const verticalTotal = top + bottom;
-		const horizontalTotal = left + right;
-
-		const topPct = verticalTotal > 0 ? (top / verticalTotal) * 100 : 50;
-		const bottomPct = verticalTotal > 0 ? (bottom / verticalTotal) * 100 : 50;
-		const leftPct = horizontalTotal > 0 ? (left / horizontalTotal) * 100 : 50;
-		const rightPct = horizontalTotal > 0 ? (right / horizontalTotal) * 100 : 50;
-
-		return {
-			top,
-			bottom,
-			left,
-			right,
-			topPct,
-			bottomPct,
-			leftPct,
-			rightPct
-		};
+		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
 	}
 
-	function solveLinearSystem8x8(A: number[][], b: number[]) {
-		const n = 8;
-		const M = A.map((row, i) => [...row, b[i]]);
-
-		for (let col = 0; col < n; col++) {
-			let pivotRow = col;
-			let maxAbs = Math.abs(M[col][col]);
-
-			for (let r = col + 1; r < n; r++) {
-				const v = Math.abs(M[r][col]);
-				if (v > maxAbs) {
-					maxAbs = v;
-					pivotRow = r;
-				}
-			}
-
-			if (maxAbs < 1e-12) {
-				throw new Error('Homography solve failed: singular matrix');
-			}
-
-			if (pivotRow !== col) {
-				[M[col], M[pivotRow]] = [M[pivotRow], M[col]];
-			}
-
-			const pivot = M[col][col];
-			for (let c = col; c <= n; c++) {
-				M[col][c] /= pivot;
-			}
-
-			for (let r = 0; r < n; r++) {
-				if (r === col) continue;
-				const factor = M[r][col];
-				for (let c = col; c <= n; c++) {
-					M[r][c] -= factor * M[col][c];
-				}
-			}
-		}
-
-		return M.map((row) => row[n]);
+	function zoomIn() {
+		applyZoomDelta(1);
 	}
 
-	function computeHomography(src: [Point, Point, Point, Point], dst: [Point, Point, Point, Point]) {
-		const A: number[][] = [];
-		const b: number[] = [];
-
-		for (let i = 0; i < 4; i++) {
-			const { x, y } = src[i];
-			const { x: u, y: v } = dst[i];
-
-			A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
-			b.push(u);
-
-			A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
-			b.push(v);
-		}
-
-		const [h11, h12, h13, h21, h22, h23, h31, h32] = solveLinearSystem8x8(A, b);
-
-		return [
-			[h11, h12, h13],
-			[h21, h22, h23],
-			[h31, h32, 1]
-		];
+	function zoomOut() {
+		applyZoomDelta(-1);
 	}
 
-	function invertHomography(H: number[][]) {
-		const [[a, b, c], [d, e, f], [g, h, i]] = H;
-
-		const A = e * i - f * h;
-		const B = -(d * i - f * g);
-		const C = d * h - e * g;
-		const D = -(b * i - c * h);
-		const E = a * i - c * g;
-		const F = -(a * h - b * g);
-		const G = b * f - c * e;
-		const Hc = -(a * f - c * d);
-		const I = a * e - b * d;
-
-		const det = a * A + b * B + c * C;
-		if (Math.abs(det) < 1e-12) {
-			throw new Error('Homography invert failed: singular matrix');
-		}
-
-		return [
-			[A / det, D / det, G / det],
-			[B / det, E / det, Hc / det],
-			[C / det, F / det, I / det]
-		];
+	function getZoomStyleLocal() {
+		return getZoomStyle({
+			frozenZoom,
+			displayedImageRect,
+			autoZoomToCorners,
+			naturalWidth: imageEl?.naturalWidth || 1,
+			naturalHeight: imageEl?.naturalHeight || 1,
+			corners
+		});
 	}
 
-	function applyHomography(H: number[][], x: number, y: number): Point {
-		const denom = H[2][0] * x + H[2][1] * y + H[2][2];
-		if (Math.abs(denom) < 1e-12) {
-			return { x: 0, y: 0 };
-		}
-
-		return {
-			x: (H[0][0] * x + H[0][1] * y + H[0][2]) / denom,
-			y: (H[1][0] * x + H[1][1] * y + H[1][2]) / denom
-		};
-	}
-
-	function sampleBilinear(src: Uint8ClampedArray, sw: number, sh: number, x: number, y: number) {
-		const x0 = Math.floor(x);
-		const y0 = Math.floor(y);
-		const x1 = Math.min(x0 + 1, sw - 1);
-		const y1 = Math.min(y0 + 1, sh - 1);
-
-		const dx = x - x0;
-		const dy = y - y0;
-
-		const idx00 = (y0 * sw + x0) * 4;
-		const idx10 = (y0 * sw + x1) * 4;
-		const idx01 = (y1 * sw + x0) * 4;
-		const idx11 = (y1 * sw + x1) * 4;
-
-		const out = [0, 0, 0, 0];
-
-		for (let k = 0; k < 4; k++) {
-			const top = src[idx00 + k] * (1 - dx) + src[idx10 + k] * dx;
-			const bottom = src[idx01 + k] * (1 - dx) + src[idx11 + k] * dx;
-			out[k] = top * (1 - dy) + bottom * dy;
-		}
-
-		return out;
-	}
-
-	function warpImageToDataUrl(image: HTMLImageElement, corners: [Point, Point, Point, Point]) {
-		const [tl, tr, br, bl] = corners;
-
-		const { width: outWidth, height: outHeight } = computeWarpOutputSize(tl, tr, br, bl);
-
-		const srcCanvas = document.createElement('canvas');
-		srcCanvas.width = image.naturalWidth;
-		srcCanvas.height = image.naturalHeight;
-
-		const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-		if (!srcCtx) {
-			throw new Error('Could not create source canvas');
-		}
-		srcCtx.drawImage(image, 0, 0);
-
-		const srcImage = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
-		const srcData = srcImage.data;
-		const sw = srcCanvas.width;
-		const sh = srcCanvas.height;
-
-		const outCanvas = document.createElement('canvas');
-		outCanvas.width = outWidth;
-		outCanvas.height = outHeight;
-
-		const outCtx = outCanvas.getContext('2d');
-		if (!outCtx) {
-			throw new Error('Could not create output canvas');
-		}
-
-		const outImage = outCtx.createImageData(outWidth, outHeight);
-		const outData = outImage.data;
-
-		const dstQuad: [Point, Point, Point, Point] = [
-			{ x: 0, y: 0 },
-			{ x: outWidth - 1, y: 0 },
-			{ x: outWidth - 1, y: outHeight - 1 },
-			{ x: 0, y: outHeight - 1 }
-		];
-
-		// map source quad -> destination rect, then invert for sampling
-		const H = computeHomography(corners, dstQuad);
-		const Hinv = invertHomography(H);
-
-		for (let y = 0; y < outHeight; y++) {
-			for (let x = 0; x < outWidth; x++) {
-				const srcPt = applyHomography(Hinv, x + 0.5, y + 0.5);
-
-				const outIdx = (y * outWidth + x) * 4;
-
-				if (srcPt.x < 0 || srcPt.x >= sw - 1 || srcPt.y < 0 || srcPt.y >= sh - 1) {
-					outData[outIdx + 0] = 0;
-					outData[outIdx + 1] = 0;
-					outData[outIdx + 2] = 0;
-					outData[outIdx + 3] = 0;
-					continue;
-				}
-
-				const [r, g, b, a] = sampleBilinear(srcData, sw, sh, srcPt.x, srcPt.y);
-				outData[outIdx + 0] = Math.round(r);
-				outData[outIdx + 1] = Math.round(g);
-				outData[outIdx + 2] = Math.round(b);
-				outData[outIdx + 3] = Math.round(a);
-			}
-		}
-
-		outCtx.putImageData(outImage, 0, 0);
-		return outCanvas.toDataURL('image/png');
-	}
 </script>
 
 <div
@@ -1760,7 +1095,7 @@
 															top: ${displayedImageRect.y}px;
 															width: ${displayedImageRect.width}px;
 															height: ${displayedImageRect.height}px;
-															${getZoomStyle()}
+															${getZoomStyleLocal()}
 														`}
 												>
 													<div class="absolute inset-0">
