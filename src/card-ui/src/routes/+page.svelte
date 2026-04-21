@@ -4,27 +4,21 @@
 	import type { Quad } from '../lib/card-centering/geometry';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import {
-	cornerPads,
-	STEP_VALUES,
-	PAGE_ZOOM_VALUES,
-	ZOOM_VALUES,
-	ALERT_THRESHOLD,
-	cornerOverlayItems
+		cornerPads,
+		STEP_VALUES,
+		PAGE_ZOOM_VALUES,
+		ZOOM_VALUES,
+		ALERT_THRESHOLD,
+		cornerOverlayItems
 	} from '../lib/card-centering/constants';
 	import { snapGuideDisplayPx, formatPct } from '../lib/card-centering/format';
 	import { inferCorners, getSegmentationMaskUrl } from '../lib/card-centering/api';
+	import { computeZoomMetrics, getZoomStyle } from '../lib/card-centering/view';
+	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
 	import {
-	computeZoomMetrics,
-	getZoomStyle,
-	} from '../lib/card-centering/view';
-	import {
-	getCenteringStats,
-	type GuideKey
-	} from '../lib/card-centering/centering';
-	import {
-	handleInputKeydown,
-	handleInputKeyup,
-	type Direction
+		handleInputKeydown,
+		handleInputKeyup,
+		type Direction
 	} from '../lib/card-centering/input';
 
 	let imageFile = $state<File | null>(null);
@@ -139,7 +133,6 @@
 			pendingDetection = false;
 			imageReadyForControls = false;
 
-
 			corners = {
 				topLeft: { x: 0, y: 0 },
 				topRight: { x: 0, y: 0 },
@@ -161,7 +154,6 @@
 		stepSize = 1;
 		isDark = true;
 	}
-
 
 	let pageZoom = $state(1);
 
@@ -391,12 +383,12 @@
 			activeGuide = null;
 			if (!frozenZoom && zoomLevel === 1) {
 				const z = computeZoomMetrics({
-				autoZoomToCorners,
-				displayedImageRect,
-				naturalWidth: imageEl?.naturalWidth || 1,
-				naturalHeight: imageEl?.naturalHeight || 1,
-				corners
-			});
+					autoZoomToCorners,
+					displayedImageRect,
+					naturalWidth: imageEl?.naturalWidth || 1,
+					naturalHeight: imageEl?.naturalHeight || 1,
+					corners
+				});
 
 				const naturalWidth = imageEl?.naturalWidth || 1;
 				const naturalHeight = imageEl?.naturalHeight || 1;
@@ -463,22 +455,6 @@
 		}, 180);
 	}
 
-	function handleWheel(event: WheelEvent) {
-		event.preventDefault();
-
-		const currentIndex = STEP_VALUES.indexOf(stepSize);
-
-		if (event.deltaY < 0) {
-			const nextIndex = (currentIndex + 1) % STEP_VALUES.length;
-			stepSize = STEP_VALUES[nextIndex];
-		} else {
-			const nextIndex = (currentIndex - 1 + STEP_VALUES.length) % STEP_VALUES.length;
-			stepSize = STEP_VALUES[nextIndex];
-		}
-
-		flashStepSize();
-	}
-
 	function applyReturnedCorners(returnedCorners: Array<{ id: string; x: number; y: number }>) {
 		const mapped: typeof corners = {
 			topLeft: { x: corners.topLeft.x, y: corners.topLeft.y },
@@ -501,9 +477,6 @@
 
 		corners = mapped;
 	}
-
-
-
 
 	async function runSegmentationInBrowser() {
 		if (!imageFile || !imageEl) return;
@@ -542,12 +515,12 @@
 
 				requestAnimationFrame(() => {
 					const z = computeZoomMetrics({
-					autoZoomToCorners,
-					displayedImageRect,
-					naturalWidth: imageEl?.naturalWidth || 1,
-					naturalHeight: imageEl?.naturalHeight || 1,
-					corners
-				});
+						autoZoomToCorners,
+						displayedImageRect,
+						naturalWidth: imageEl?.naturalWidth || 1,
+						naturalHeight: imageEl?.naturalHeight || 1,
+						corners
+					});
 
 					const naturalWidth = imageEl?.naturalWidth || 1;
 					const naturalHeight = imageEl?.naturalHeight || 1;
@@ -595,8 +568,6 @@
 			imageReadyForControls = true;
 		}
 	}
-
-
 
 	function getCornersForBackend() {
 		return [
@@ -666,90 +637,89 @@
 		};
 	}
 
-
 	const centeringStats = $derived(getCenteringStats(guideInsetsPx));
 
-function zoomPageIn() {
-    applyPageZoom(1);
-}
+	function zoomPageIn() {
+		applyPageZoom(1);
+	}
 
-function zoomPageOut() {
-    applyPageZoom(-1);
-}
+	function zoomPageOut() {
+		applyPageZoom(-1);
+	}
 
-function applyZoomDelta(direction: 1 | -1) {
-    const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
-    const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
-    const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
+	function applyZoomDelta(direction: 1 | -1) {
+		const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
+		const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
+		const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
 
-    zoomLevel = ZOOM_VALUES[nextIndex];
+		zoomLevel = ZOOM_VALUES[nextIndex];
 
-    if (zoomLevel === 1) {
-        frozenStage = null;
-        frozenZoom = null;
-        autoZoomToCorners = false;
-        return;
-    }
+		if (zoomLevel === 1) {
+			frozenStage = null;
+			frozenZoom = null;
+			autoZoomToCorners = false;
+			return;
+		}
 
-    if (!imageEl) return;
+		if (!imageEl) return;
 
-    const naturalWidth = imageEl.naturalWidth || 1;
-    const naturalHeight = imageEl.naturalHeight || 1;
+		const naturalWidth = imageEl.naturalWidth || 1;
+		const naturalHeight = imageEl.naturalHeight || 1;
 
-    const centerX =
-        (corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
+		const centerX =
+			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
 
-    const centerY =
-        (corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
+		const centerY =
+			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
 
-    frozenStage = null;
+		frozenStage = null;
 
-    frozenZoom = {
-        scale: zoomLevel,
-        centerXNorm: centerX / naturalWidth,
-        centerYNorm: centerY / naturalHeight
-    };
+		frozenZoom = {
+			scale: zoomLevel,
+			centerXNorm: centerX / naturalWidth,
+			centerYNorm: centerY / naturalHeight
+		};
 
-    autoZoomToCorners = false;
-}
+		autoZoomToCorners = false;
+	}
 
 	function updateDisplayedImageRect() {
-	if (!containerEl || !imageEl) return;
+		if (!containerEl || !imageEl) return;
 
-	const containerWidth = containerSize.width;
-	const containerHeight = containerSize.height;
+		const containerWidth = containerSize.width;
+		const containerHeight = containerSize.height;
 
-	const naturalWidth = imageEl.naturalWidth;
-	const naturalHeight = imageEl.naturalHeight;
+		const naturalWidth = imageEl.naturalWidth;
+		const naturalHeight = imageEl.naturalHeight;
 
-	if (!naturalWidth || !naturalHeight) return;
+		if (!naturalWidth || !naturalHeight) return;
 
-	const imageAspect = naturalWidth / naturalHeight;
+		const imageAspect = naturalWidth / naturalHeight;
 
-	if (frozenStage) {
-		const width = frozenStage.width;
-		const height = frozenStage.height;
+		if (frozenStage) {
+			const width = frozenStage.width;
+			const height = frozenStage.height;
+			const x = (containerWidth - width) / 2;
+			const y = (containerHeight - height) / 2;
+			displayedImageRect = { x, y, width, height };
+			return;
+		}
+
+		const maxStageWidth = Math.min(containerWidth, 720);
+		const maxStageHeight = Math.min(containerHeight, 960);
+
+		let width = maxStageWidth;
+		let height = width / imageAspect;
+
+		if (height > maxStageHeight) {
+			height = maxStageHeight;
+			width = height * imageAspect;
+		}
+
 		const x = (containerWidth - width) / 2;
 		const y = (containerHeight - height) / 2;
+
 		displayedImageRect = { x, y, width, height };
-		return;
-	}
-
-	const maxStageWidth = Math.min(containerWidth, 720);
-	const maxStageHeight = Math.min(containerHeight, 960);
-
-	let width = maxStageWidth;
-	let height = width / imageAspect;
-
-	if (height > maxStageHeight) {
-		height = maxStageHeight;
-		width = height * imageAspect;
-	}
-
-	const x = (containerWidth - width) / 2;
-	const y = (containerHeight - height) / 2;
-
-	displayedImageRect = { x, y, width, height };
 	}
 
 	function applyPageZoom(direction: 1 | -1) {
@@ -779,7 +749,6 @@ function applyZoomDelta(direction: 1 | -1) {
 			corners
 		});
 	}
-
 </script>
 
 <div
@@ -792,7 +761,6 @@ function applyZoomDelta(direction: 1 | -1) {
 	<div
 		class="min-h-screen bg-zinc-950
 		text-zinc-100 select-none"
-		onwheel={handleWheel}
 	>
 		<header class="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
 			<div class="max-w-8xl mx-auto flex items-center justify-end px-6 py-4">
@@ -1017,6 +985,36 @@ function applyZoomDelta(direction: 1 | -1) {
 										</div>
 									</div>
 								{/each}
+							</div>
+						</div>
+
+						<div class="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
+							<div class="space-y-3 text-sm leading-relaxed text-zinc-400">
+								<div class="text-xs font-medium tracking-wide text-zinc-500 uppercase">
+									About This Tool
+								</div>
+
+								<p>
+									This tool helps you analyze trading card centering by detecting edges and
+									measuring border spacing. It works for Pokémon cards, sports cards, and other
+									collectibles.
+								</p>
+
+								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
+									How to Use
+								</div>
+
+								<ul class="list-disc space-y-1 pl-5">
+									<li>Upload a card image to begin detection, large files may take a bit</li>
+									<li>Click on corners of second panel to adjust lines to sides of card. WASD, arrow pads, or directional keys can be used to adjust.</li>
+									<li>Use the warp preview to verify alignment</li>
+									<li>Check centering percentages. % turns red when the border ratio exceeds PSA 10 standards.</li>
+									<li>Day/Night mode in the warp preview can be used to help find border edge.</li>
+								</ul>
+
+								<p class="pt-2">
+									Use this before grading to quickly check centering accuracy and border balance.
+								</p>
 							</div>
 						</div>
 					</div>
