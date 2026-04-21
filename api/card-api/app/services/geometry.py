@@ -297,10 +297,10 @@ def score_candidate_quad(
     cand = cand_mask > 0
 
     inter = np.logical_and(seg, cand).sum()
-    fp = np.logical_and(cand, ~seg).sum()
-    fn = np.logical_and(seg, ~cand).sum()
+    cand_area = cand.sum()
+    seg_area = seg.sum()
 
-    score = (w_inter * inter) - (w_fp * fp) - (w_fn * fn)
+    score = ((w_inter + w_fp + w_fn) * inter) - (w_fp * cand_area) - (w_fn * seg_area)
     return float(score)
 
 
@@ -329,14 +329,38 @@ def refine_quad_local_search(
 ):
     """
     Refine an initial quad by random local search against the segmentation mask.
+    Uses a downscaled mask for speed, then scales the quad back up.
     """
     rng = np.random.default_rng(random_seed)
 
-    best_quad = order_points(np.asarray(init_quad, dtype=np.float32))
-    best_quad = clamp_quad(best_quad, image_shape)
-    best_score = score_candidate_quad(seg_mask, best_quad, image_shape)
+    h, w = seg_mask.shape[:2]
 
-    for step in steps:
+    # choose a smaller working size for refinement
+    max_dim = 900
+    scale = min(1.0, max_dim / max(h, w))
+
+    if scale < 1.0:
+        small_w = max(1, int(round(w * scale)))
+        small_h = max(1, int(round(h * scale)))
+        work_mask = cv2.resize(seg_mask, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
+        work_shape = (small_h, small_w)
+
+        quad0 = np.asarray(init_quad, dtype=np.float32).copy()
+        quad0[:, 0] *= scale
+        quad0[:, 1] *= scale
+    else:
+        work_mask = seg_mask
+        work_shape = image_shape
+        quad0 = np.asarray(init_quad, dtype=np.float32).copy()
+
+    best_quad = order_points(quad0)
+    best_quad = clamp_quad(best_quad, work_shape)
+    best_score = score_candidate_quad(work_mask, best_quad, work_shape)
+
+    # optionally scale step sizes too so they behave similarly across resolutions
+    scaled_steps = tuple(max(1, int(round(step * scale))) for step in steps) if scale < 1.0 else steps
+
+    for step in scaled_steps:
         for _ in range(tries_per_step):
             delta = rng.integers(-step, step + 1, size=(4, 2)).astype(np.float32)
             cand = perturb_quad(best_quad, delta)
@@ -349,18 +373,25 @@ def refine_quad_local_search(
                 ).astype(np.float32)
                 cand = cand + center_shift
 
-            cand = clamp_quad(cand, image_shape)
+            cand = clamp_quad(cand, work_shape)
             cand = order_points(cand)
 
             area = cv2.contourArea(cand.astype(np.float32))
-            if area < 200:
+            if area < 200 * (scale ** 2 if scale < 1.0 else 1.0):
                 continue
 
-            score = score_candidate_quad(seg_mask, cand, image_shape)
+            score = score_candidate_quad(work_mask, cand, work_shape)
 
             if score > best_score:
                 best_score = score
                 best_quad = cand
+
+    if scale < 1.0:
+        best_quad = best_quad.copy()
+        best_quad[:, 0] /= scale
+        best_quad[:, 1] /= scale
+        best_quad = clamp_quad(best_quad, image_shape)
+        best_quad = order_points(best_quad)
 
     return best_quad, best_score
 
