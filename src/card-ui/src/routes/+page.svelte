@@ -1194,7 +1194,7 @@
 										Click on corners of second panel to adjust lines to sides of card. WASD, arrow
 										pads, directional keys, and mouse can be used to adjust.
 									</li>
-									<li>Use the warp preview to verify alignment</li>
+									<li>Use the warp preview to verify alignment. WASD and directional keys can be used to adjust</li>
 									<li>
 										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
 										standards.
