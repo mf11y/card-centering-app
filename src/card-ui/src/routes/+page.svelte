@@ -90,8 +90,8 @@
 
 	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
 
-	const CORNER_PATCH_RADIUS = 120; // source pixels around the selected corner
-	const CORNER_ZOOM_SIZE = 280; // displayed canvas size
+	const CORNER_PATCH_RADIUS = 150; // source pixels around the selected corner
+	const CORNER_ZOOM_SIZE = 200; // displayed canvas size
 
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
 
@@ -1060,10 +1060,10 @@
 </script>
 
 <div
-	class="origin-top-left"
+	class="origin-top-left w-full overflow-x-hidden"
 	style={`
 		transform: scale(${pageZoom});
-		width: ${100 / pageZoom}%;
+		width: 100%;
 	`}
 >
 	<div
@@ -1080,9 +1080,9 @@
 		</header>
 
 		<main class="mx-auto flex h-[calc(100vh-220px)] w-full flex-col gap-6 px-6 py-6">
-			<div class="grid items-start justify-center gap-6 xl:grid-cols-[420px_auto_auto]">
+			<div class="grid w-full items-start gap-6 xl:grid-cols-[420px_auto_auto] xl:justify-center">
 				<section
-					class="flex w-[420px] flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="flex w-full xl:w-[420px] flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
 					<div class="border-b border-zinc-800 px-5 py-4">
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Adjustments</h2>
@@ -1650,7 +1650,7 @@
 				</section>
 
 				<section
-					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="w-full xl:w-[525px] justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
@@ -1658,366 +1658,367 @@
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
 						</div>
 					</div>
-					<div
-						class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] border border-dashed border-zinc-700 bg-zinc-950"
-					>
+
+					<div class="p-5">
 						<div
-							role="button"
-							tabindex="0"
-							class={`group flex h-full w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-zinc-700 bg-zinc-950 transition ${
-								imageUrl
-									? 'cursor-default opacity-80'
-									: 'cursor-pointer hover:border-zinc-500 hover:bg-zinc-900'
-							}`}
-							ondrop={!imageUrl ? handleDrop : undefined}
-							ondragover={!imageUrl ? handleDragOver : undefined}
-							onclick={() => {
-								if (!imageUrl) {
-									document.getElementById('image-upload')?.click();
-								}
-							}}
+							class="relative aspect-[5/7] w-full border border-dashed border-zinc-700 bg-zinc-950"
 						>
-							<input
-								id="image-upload"
-								type="file"
-								accept="image/*"
-								class="hidden"
-								onchange={(e) => {
-									handleFileChange(e);
-									setTimeout(() => {
-										if (imageFile && imageUrl) {
-											runSegmentationInBrowser();
-										}
-									}, 0);
+							<div
+								role="button"
+								tabindex="0"
+								class={`group flex h-full w-full items-center justify-center overflow-hidden border border-zinc-700 bg-zinc-950 transition ${
+									imageUrl
+										? 'cursor-default opacity-80'
+										: 'cursor-pointer hover:border-zinc-500 hover:bg-zinc-900'
+								}`}
+								ondrop={!imageUrl ? handleDrop : undefined}
+								ondragover={!imageUrl ? handleDragOver : undefined}
+								onclick={() => {
+									if (!imageUrl) {
+										document.getElementById('image-upload')?.click();
+									}
 								}}
-								disabled={!!imageUrl}
-							/>
+							>
+								<input
+									id="image-upload"
+									type="file"
+									accept="image/*"
+									class="hidden"
+									onchange={(e) => {
+										handleFileChange(e);
+										setTimeout(() => {
+											if (imageFile && imageUrl) {
+												runSegmentationInBrowser();
+											}
+										}, 0);
+									}}
+									disabled={!!imageUrl}
+								/>
 
-							<div class="flex w-full items-center justify-center">
-								<div class="absolute inset-0 overflow-hidden rounded-xl" bind:this={containerEl}>
-									{#if imageUrl}
-										<div
-											class="absolute inset-0"
-											role="button"
-											tabindex="0"
-											bind:this={sourceFocusTrapEl}
-											onclick={clearActiveSelection}
-											onkeydown={(e) => {
-												handleSourceTrapKeydown(e);
+									<div class="absolute inset-0 overflow-hidden rounded-xl" bind:this={containerEl}>
+										{#if imageUrl}
+											<div
+												class="absolute inset-0 touch-none"
+												role="button"
+												tabindex="0"
+												bind:this={sourceFocusTrapEl}
+												onclick={clearActiveSelection}
+												onkeydown={(e) => {
+													handleSourceTrapKeydown(e);
 
-												if (e.key === 'Enter' || e.key === ' ') {
-													e.preventDefault();
-													clearActiveSelection();
-												}
-											}}
-										>
-											<!-- fixed review viewport -->
-											<div class="absolute inset-0 overflow-hidden rounded-xl">
-												<!-- static background fill so no black bars ever appear -->
-												{#if !autoZoomToCorners && !frozenZoom}
-													<img
-														src={imageUrl}
-														alt=""
-														aria-hidden="true"
-														class="absolute inset-0 h-full w-full object-cover opacity-100"
-														draggable="false"
-													/>
-												{:else}
-													<div class="absolute inset-0 bg-zinc-950"></div>
-												{/if}
+													if (e.key === 'Enter' || e.key === ' ') {
+														e.preventDefault();
+														clearActiveSelection();
+													}
+												}}
+											>
+												<!-- fixed review viewport -->
+												<div class="absolute inset-0 overflow-hidden rounded-xl">
+													<!-- static background fill so no black bars ever appear -->
+													{#if !autoZoomToCorners && !frozenZoom}
+														<img
+															src={imageUrl}
+															alt=""
+															aria-hidden="true"
+															class="absolute inset-0 h-full w-full object-cover opacity-100"
+															draggable="false"
+														/>
+													{:else}
+														<div class="absolute inset-0 bg-zinc-950"></div>
+													{/if}
 
-												<!-- fixed image plane -->
-												<div
-													class="absolute overflow-hidden"
-													style={`
+													<!-- fixed image plane -->
+													<div
+														class="absolute overflow-hidden"
+														style={`
 															left: ${displayedImageRect.x}px;
 															top: ${displayedImageRect.y}px;
 															width: ${displayedImageRect.width}px;
 															height: ${displayedImageRect.height}px;
 															${getZoomStyleLocal()}
 														`}
-												>
-													<div class="absolute inset-0">
-														<img
-															bind:this={imageEl}
-															src={imageUrl}
-															alt="Uploaded source"
-															class="block h-full w-full object-contain"
-															draggable="false"
-															ondragstart={(e) => e.preventDefault()}
-															onload={async () => {
-																updateSize();
+													>
+														<div class="absolute inset-0">
+															<img
+																bind:this={imageEl}
+																src={imageUrl}
+																alt="Uploaded source"
+																class="block h-full w-full object-contain"
+																draggable="false"
+																ondragstart={(e) => e.preventDefault()}
+																onload={async () => {
+																	updateSize();
 
-																if (pendingDetection) {
-																	pendingDetection = false;
-																	await runSegmentationInBrowser();
-																}
-																setTimeout(() => {
-																	imageReadyForControls = true;
-																}, 10);
-															}}
-														/>
-
-														<svg class="pointer-events-none absolute inset-0 h-full w-full">
-															<line
-																x1={imageXToPercent(corners.topLeft.x)}
-																y1={imageYToPercent(corners.topLeft.y)}
-																x2={imageXToPercent(corners.topRight.x)}
-																y2={imageYToPercent(corners.topRight.y)}
-																stroke="#22d3ee"
-																stroke-width="2"
-																stroke-dasharray="8 6"
-																opacity="1"
+																	if (pendingDetection) {
+																		pendingDetection = false;
+																		await runSegmentationInBrowser();
+																	}
+																	setTimeout(() => {
+																		imageReadyForControls = true;
+																	}, 10);
+																}}
 															/>
 
-															<line
-																x1={imageXToPercent(corners.topRight.x)}
-																y1={imageYToPercent(corners.topRight.y)}
-																x2={imageXToPercent(corners.bottomRight.x)}
-																y2={imageYToPercent(corners.bottomRight.y)}
-																stroke="#22d3ee"
-																stroke-width="2"
-																stroke-dasharray="8 6"
-																opacity="1"
-															/>
+															<svg class="pointer-events-none absolute inset-0 h-full w-full">
+																<line
+																	x1={imageXToPercent(corners.topLeft.x)}
+																	y1={imageYToPercent(corners.topLeft.y)}
+																	x2={imageXToPercent(corners.topRight.x)}
+																	y2={imageYToPercent(corners.topRight.y)}
+																	stroke="#22d3ee"
+																	stroke-width="2"
+																	stroke-dasharray="8 6"
+																	opacity="1"
+																/>
 
-															<line
-																x1={imageXToPercent(corners.bottomRight.x)}
-																y1={imageYToPercent(corners.bottomRight.y)}
-																x2={imageXToPercent(corners.bottomLeft.x)}
-																y2={imageYToPercent(corners.bottomLeft.y)}
-																stroke="#22d3ee"
-																stroke-width="2"
-																stroke-dasharray="8 6"
-																opacity="1"
-															/>
+																<line
+																	x1={imageXToPercent(corners.topRight.x)}
+																	y1={imageYToPercent(corners.topRight.y)}
+																	x2={imageXToPercent(corners.bottomRight.x)}
+																	y2={imageYToPercent(corners.bottomRight.y)}
+																	stroke="#22d3ee"
+																	stroke-width="2"
+																	stroke-dasharray="8 6"
+																	opacity="1"
+																/>
 
-															<line
-																x1={imageXToPercent(corners.bottomLeft.x)}
-																y1={imageYToPercent(corners.bottomLeft.y)}
-																x2={imageXToPercent(corners.topLeft.x)}
-																y2={imageYToPercent(corners.topLeft.y)}
-																stroke="#22d3ee"
-																stroke-width="2"
-																stroke-dasharray="8 6"
-																opacity="1"
-															/>
-														</svg>
-													</div>
-													{#each cornerOverlayItems as corner}
-														<button
-															type="button"
-															aria-label={`Toggle ${corner.key} arrow control`}
-															aria-pressed={activeCorner === corner.key}
-															class="absolute z-10 flex h-10 w-10 items-center justify-center"
-															style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
-															style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
-															style:transform={corner.key === 'topLeft'
-																? 'translate(-85%, -85%)'
-																: corner.key === 'topRight'
-																	? 'translate(-15%, -85%)'
-																	: corner.key === 'bottomLeft'
-																		? 'translate(-85%, -15%)'
-																		: 'translate(-15%, -15%)'}
-															onpointerdown={(e) => {
-																e.stopPropagation();
-																e.preventDefault();
+																<line
+																	x1={imageXToPercent(corners.bottomRight.x)}
+																	y1={imageYToPercent(corners.bottomRight.y)}
+																	x2={imageXToPercent(corners.bottomLeft.x)}
+																	y2={imageYToPercent(corners.bottomLeft.y)}
+																	stroke="#22d3ee"
+																	stroke-width="2"
+																	stroke-dasharray="8 6"
+																	opacity="1"
+																/>
 
-																activeCorner = corner.key;
-																activeGuide = null;
-																draggingCorner = corner.key;
-																didDragCorner = false;
+																<line
+																	x1={imageXToPercent(corners.bottomLeft.x)}
+																	y1={imageYToPercent(corners.bottomLeft.y)}
+																	x2={imageXToPercent(corners.topLeft.x)}
+																	y2={imageYToPercent(corners.topLeft.y)}
+																	stroke="#22d3ee"
+																	stroke-width="2"
+																	stroke-dasharray="8 6"
+																	opacity="1"
+																/>
+															</svg>
+														</div>
+														{#each cornerOverlayItems as corner}
+															<button
+																type="button"
+																aria-label={`Toggle ${corner.key} arrow control`}
+																aria-pressed={activeCorner === corner.key}
+																class="absolute z-10 flex h-10 w-10 items-center justify-center"
+																style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+																style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+																style:transform={corner.key === 'topLeft'
+																	? 'translate(-85%, -85%)'
+																	: corner.key === 'topRight'
+																		? 'translate(-15%, -85%)'
+																		: corner.key === 'bottomLeft'
+																			? 'translate(-85%, -15%)'
+																			: 'translate(-15%, -15%)'}
+																onpointerdown={(e) => {
+																	e.stopPropagation();
+																	e.preventDefault();
 
-																window.addEventListener('pointermove', onPointerMove);
-																window.addEventListener('pointerup', stopDrag);
-															}}
-															onclick={(e) => {
-																e.stopPropagation();
-																activeCorner = corner.key;
-																activeGuide = null;
-															}}
-															data-source-corner="true"
-															data-corner-key={corner.key}
-														>
-															<div
-																class={`h-7 w-7 transition ${
-																	activeCorner === corner.key
-																		? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
-																		: 'text-cyan-400 hover:text-green-300'
-																}`}
+																	activeCorner = corner.key;
+																	activeGuide = null;
+																	draggingCorner = corner.key;
+																	didDragCorner = false;
+
+																	window.addEventListener('pointermove', onPointerMove);
+																	window.addEventListener('pointerup', stopDrag);
+																}}
+																onclick={(e) => {
+																	e.stopPropagation();
+																	activeCorner = corner.key;
+																	activeGuide = null;
+																}}
+																data-source-corner="true"
+																data-corner-key={corner.key}
 															>
-																<svg
-																	viewBox="0 0 24 24"
-																	fill="none"
-																	stroke="currentColor"
-																	stroke-width="2.25"
-																	stroke-linecap="round"
-																	stroke-linejoin="round"
-																	class={`h-full w-full ${
-																		corner.key === 'topLeft'
-																			? 'rotate-180'
-																			: corner.key === 'topRight'
-																				? '-rotate-90'
-																				: corner.key === 'bottomRight'
-																					? 'rotate-0'
-																					: 'rotate-90'
+																<div
+																	class={`h-7 w-7 transition ${
+																		activeCorner === corner.key
+																			? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
+																			: 'text-cyan-400 hover:text-green-300'
 																	}`}
-																	aria-hidden="true"
 																>
-																	<path d="M19 19L5 5" />
-																	<path d="M5 11V5H11" />
-																</svg>
-															</div></button
-														>
-													{/each}
+																	<svg
+																		viewBox="0 0 24 24"
+																		fill="none"
+																		stroke="currentColor"
+																		stroke-width="2.25"
+																		stroke-linecap="round"
+																		stroke-linejoin="round"
+																		class={`h-full w-full ${
+																			corner.key === 'topLeft'
+																				? 'rotate-180'
+																				: corner.key === 'topRight'
+																					? '-rotate-90'
+																					: corner.key === 'bottomRight'
+																						? 'rotate-0'
+																						: 'rotate-90'
+																		}`}
+																		aria-hidden="true"
+																	>
+																		<path d="M19 19L5 5" />
+																		<path d="M5 11V5H11" />
+																	</svg>
+																</div></button
+															>
+														{/each}
+													</div>
 												</div>
 											</div>
-										</div>
-									{/if}
-								</div>
-							</div>
-							{#if imageUrl && activeCorner}
-								<div
-									class="pointer-events-none absolute z-20 flex items-center justify-center"
-									style="
+										{/if}
+									</div>
+								{#if imageUrl && activeCorner}
+									<div
+										class="pointer-events-none absolute z-20 flex items-center justify-center"
+										style="
 			left: 50%;
 			top: 50%;
 			transform: translate(-50%, -50%);
 		"
-								>
-									<div
-										class="pointer-events-auto bg-transparent p-0"
-										style="box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 6px rgba(34,211,238,0.2);"
 									>
-										<canvas
-											bind:this={cornerZoomCanvas}
-											width={CORNER_ZOOM_SIZE}
-											height={CORNER_ZOOM_SIZE}
-											class="h-[250px] w-[250px]"
-										></canvas>
-									</div>
-								</div>
-							{/if}
-						</div>
-					</div>
-
-					<div class="block xl:hidden grid grid-cols-2 gap-4">
-						{#each cornerPads as corner}
-							<div class="flex items-center justify-center p-3">
-								<div class="w-full max-w-[140px]">
-									<div class="mb-2 text-center"></div>
-
-									<div class="mb-2 text-center">
-										<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
-											{corner.label}
+										<div
+											class="pointer-events-auto bg-transparent p-0"
+											style="box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 6px rgba(34,211,238,0.2);"
+										>
+											<canvas
+												bind:this={cornerZoomCanvas}
+												width={CORNER_ZOOM_SIZE}
+												height={CORNER_ZOOM_SIZE}
+												class="h-[200px] w-[200px]"
+											></canvas>
 										</div>
 									</div>
+								{/if}
+							</div>
+						</div>
 
-									<div class="grid grid-cols-3 gap-2">
-										<div></div>
+						<div class="block xl:hidden grid grid-cols-2 gap-4">
+							{#each cornerPads as corner}
+								<div class="flex items-center justify-center p-3">
+									<div class="w-full max-w-[140px]">
+										<div class="mb-2 text-center"></div>
 
-										<button
-											class={`rounded-xl border px-2 py-2 text-sm transition ${
-												activeDirection === 'up' &&
-												activeCorner === (corner.id as keyof typeof corners)
-													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
-													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
-											}`}
-											onclick={() => {
-												activeCorner = corner.id as keyof typeof corners;
-												activeGuide = null;
-												activeDirection = 'up';
-												moveCorner(corner.id as keyof typeof corners, 0, -stepSize);
-											}}
-										>
-											↑
-										</button>
+										<div class="mb-2 text-center">
+											<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+												{corner.label}
+											</div>
+										</div>
 
-										<div></div>
+										<div class="grid grid-cols-3 gap-2">
+											<div></div>
 
-										<button
-											class={`rounded-xl border px-2 py-2 text-sm transition ${
-												activeDirection === 'left' &&
-												activeCorner === (corner.id as keyof typeof corners)
-													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
-													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
-											}`}
-											onclick={() => {
-												activeCorner = corner.id as keyof typeof corners;
-												activeGuide = null;
-												activeDirection = 'left';
-												moveCorner(corner.id as keyof typeof corners, -stepSize, 0);
-											}}
-										>
-											←
-										</button>
-
-										<button
-											aria-label={`Toggle ${corner.label} arrow control`}
-											class={`flex items-center justify-center rounded-xl border transition ${
-												activeCorner === (corner.id as keyof typeof corners)
-													? 'border-blue-400 bg-blue-500/20'
-													: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
-											}`}
-											onclick={() => toggleCornerActive(corner.id as keyof typeof corners)}
-										>
-											<div
-												class={`h-2 w-2 rounded-full ${
+											<button
+												class={`rounded-xl border px-2 py-2 text-sm transition ${
+													activeDirection === 'up' &&
 													activeCorner === (corner.id as keyof typeof corners)
-														? 'bg-blue-400'
-														: 'bg-zinc-500'
+														? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+														: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
 												}`}
-											></div>
-										</button>
+												onclick={() => {
+													activeCorner = corner.id as keyof typeof corners;
+													activeGuide = null;
+													activeDirection = 'up';
+													moveCorner(corner.id as keyof typeof corners, 0, -stepSize);
+												}}
+											>
+												↑
+											</button>
 
-										<button
-											class={`rounded-xl border px-2 py-2 text-sm transition ${
-												activeDirection === 'right' &&
-												activeCorner === (corner.id as keyof typeof corners)
-													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
-													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
-											}`}
-											onclick={() => {
-												activeCorner = corner.id as keyof typeof corners;
-												activeGuide = null;
-												activeDirection = 'right';
-												moveCorner(corner.id as keyof typeof corners, stepSize, 0);
-											}}
-										>
-											→
-										</button>
+											<div></div>
 
-										<div></div>
+											<button
+												class={`rounded-xl border px-2 py-2 text-sm transition ${
+													activeDirection === 'left' &&
+													activeCorner === (corner.id as keyof typeof corners)
+														? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+														: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+												}`}
+												onclick={() => {
+													activeCorner = corner.id as keyof typeof corners;
+													activeGuide = null;
+													activeDirection = 'left';
+													moveCorner(corner.id as keyof typeof corners, -stepSize, 0);
+												}}
+											>
+												←
+											</button>
 
-										<button
-											class={`rounded-xl border px-2 py-2 text-sm transition ${
-												activeDirection === 'down' &&
-												activeCorner === (corner.id as keyof typeof corners)
-													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
-													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
-											}`}
-											onclick={() => {
-												activeCorner = corner.id as keyof typeof corners;
-												activeGuide = null;
-												activeDirection = 'down';
-												moveCorner(corner.id as keyof typeof corners, 0, stepSize);
-											}}
-										>
-											↓
-										</button>
+											<button
+												aria-label={`Toggle ${corner.label} arrow control`}
+												class={`flex items-center justify-center rounded-xl border transition ${
+													activeCorner === (corner.id as keyof typeof corners)
+														? 'border-blue-400 bg-blue-500/20'
+														: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
+												}`}
+												onclick={() => toggleCornerActive(corner.id as keyof typeof corners)}
+											>
+												<div
+													class={`h-2 w-2 rounded-full ${
+														activeCorner === (corner.id as keyof typeof corners)
+															? 'bg-blue-400'
+															: 'bg-zinc-500'
+													}`}
+												></div>
+											</button>
 
-										<div></div>
+											<button
+												class={`rounded-xl border px-2 py-2 text-sm transition ${
+													activeDirection === 'right' &&
+													activeCorner === (corner.id as keyof typeof corners)
+														? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+														: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+												}`}
+												onclick={() => {
+													activeCorner = corner.id as keyof typeof corners;
+													activeGuide = null;
+													activeDirection = 'right';
+													moveCorner(corner.id as keyof typeof corners, stepSize, 0);
+												}}
+											>
+												→
+											</button>
+
+											<div></div>
+
+											<button
+												class={`rounded-xl border px-2 py-2 text-sm transition ${
+													activeDirection === 'down' &&
+													activeCorner === (corner.id as keyof typeof corners)
+														? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+														: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+												}`}
+												onclick={() => {
+													activeCorner = corner.id as keyof typeof corners;
+													activeGuide = null;
+													activeDirection = 'down';
+													moveCorner(corner.id as keyof typeof corners, 0, stepSize);
+												}}
+											>
+												↓
+											</button>
+
+											<div></div>
+										</div>
 									</div>
 								</div>
-							</div>
-						{/each}
+							{/each}
+						</div>
 					</div>
 				</section>
 
 				<section
-					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="w-full xl:w-[525px] justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
-					<div class="flex items-center border-b border-zinc-800 px-5 py-4">
+					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">
 								Warp Preview
@@ -2053,7 +2054,7 @@
 						}`}
 					>
 						<!-- Centering Metrics -->
-						<div class="grid shrink-0 grid-cols-2 gap-4 text-sm">
+						<div class="grid shrink-0 grid-cols-1 gap-4 text-sm sm:grid-cols-2">
 							<!-- Vertical Centering -->
 							<div>
 								<div class="mb-2 text-xs tracking-wide text-zinc-500 uppercase">
@@ -2061,11 +2062,11 @@
 								</div>
 
 								<div class={`rounded-lg border border-zinc-800 bg-zinc-950/60 p-4`}>
-									<div class="relative grid grid-cols-2 gap-x-8">
+									<div class="relative grid grid-cols-2 gap-x-4 sm:gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Top</div>
 											<div
-												class={`mt-2 text-2xl font-semibold ${
+												class={`mt-2 text-xl sm:text-2xl font-semibold ${
 													centeringStats.topPct > ALERT_THRESHOLD ? 'text-red-400' : 'text-zinc-100'
 												}`}
 											>
@@ -2076,7 +2077,7 @@
 										<div class="text-right">
 											<div class="text-sm text-zinc-400">Bottom</div>
 											<div
-												class={`mt-2 text-2xl font-semibold ${
+												class={`mt-2 text-xl sm:text-2xl font-semibold ${
 													centeringStats.bottomPct > ALERT_THRESHOLD
 														? 'text-red-400'
 														: 'text-zinc-100'
@@ -2114,11 +2115,11 @@
 								</div>
 
 								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
-									<div class="relative grid grid-cols-2 gap-x-8">
+									<div class="relative grid grid-cols-2 gap-x-4 sm:gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Left</div>
 											<div
-												class={`mt-2 text-2xl font-semibold ${
+												class={`mt-2 text-xl sm:text-2xl font-semibold ${
 													centeringStats.leftPct > ALERT_THRESHOLD
 														? 'text-red-400'
 														: 'text-zinc-100'
@@ -2131,7 +2132,7 @@
 										<div class="text-right">
 											<div class="text-sm text-zinc-400">Right</div>
 											<div
-												class={`mt-2 text-2xl font-semibold ${
+												class={`mt-2 text-xl sm:text-2xl font-semibold ${
 													centeringStats.rightPct > ALERT_THRESHOLD
 														? 'text-red-400'
 														: 'text-zinc-100'
@@ -2164,9 +2165,9 @@
 						</div>
 
 						<!-- Warp Image -->
-						<div class="grid place-items-center overflow-hidden">
+						<div class="flex w-full items-center justify-start xl:justify-center">
 							<div
-								class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] bg-zinc-950"
+								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none border border-dashed border-zinc-700 bg-zinc-950"
 								bind:this={warpContainerEl}
 								role="button"
 								tabindex="0"
