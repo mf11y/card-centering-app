@@ -1630,7 +1630,8 @@
 										pads, directional keys, and mouse can be used to adjust.
 									</li>
 									<li>
-										Use the warp preview to verify alignment. WASD, arrow pads, directional keys, and mouse can be used to adjust.
+										Use the warp preview to verify alignment. WASD, arrow pads, directional keys,
+										and mouse can be used to adjust.
 									</li>
 									<li>
 										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
@@ -1877,22 +1878,17 @@
 								</div>
 								{#if imageUrl && activeCorner}
 									<div
-										class="pointer-events-none absolute z-20 flex items-center justify-center"
-										style="
-			left: 50%;
-			top: 50%;
-			transform: translate(-50%, -50%);
-		"
+										class="pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
 									>
 										<div
-											class="pointer-events-auto bg-transparent p-0"
-											style="box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 6px rgba(34,211,238,0.2);"
+											class="corner-zoom-frame pointer-events-auto relative border-2 border-dotted border-cyan-400 p-0"
+											style="box-shadow: 0 4px 12px rgba(0,0,0,0.5);"
 										>
 											<canvas
 												bind:this={cornerZoomCanvas}
 												width={CORNER_ZOOM_SIZE}
 												height={CORNER_ZOOM_SIZE}
-												class="h-[200px] w-[200px]"
+												class="relative z-10 h-[200px] w-[200px]"
 											></canvas>
 										</div>
 									</div>
