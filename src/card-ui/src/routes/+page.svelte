@@ -1192,7 +1192,7 @@
 							</div>
 						</div>
 
-						<div class="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+						<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
 							<div class="mb-3 flex items-center justify-between">
 								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 									{adjustmentsMode === 'corners' ? 'Corner Controls' : 'Warp Line Controls'}
@@ -1218,11 +1218,11 @@
 											<div class="w-full max-w-[140px]">
 												<div class="mb-2 text-center"></div>
 
-																							<div class="mb-2 text-center">
-												<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
-													{corner.label}
+												<div class="mb-2 text-center">
+													<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+														{corner.label}
+													</div>
 												</div>
-											</div>
 
 												<div class="grid grid-cols-3 gap-2">
 													<div></div>
@@ -1298,10 +1298,7 @@
 														→
 													</button>
 
-													
-
 													<div></div>
-													
 
 													<button
 														class={`rounded-xl border px-2 py-2 text-sm transition ${
@@ -1467,8 +1464,6 @@
 											</div>
 										</div>
 									</div>
-
-									
 
 									<!-- BOTTOM -->
 									<div class="flex items-center justify-center p-3">
@@ -1905,6 +1900,118 @@
 							{/if}
 						</div>
 					</div>
+
+					<div class="block xl:hidden grid grid-cols-2 gap-4">
+						{#each cornerPads as corner}
+							<div class="flex items-center justify-center p-3">
+								<div class="w-full max-w-[140px]">
+									<div class="mb-2 text-center"></div>
+
+									<div class="mb-2 text-center">
+										<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+											{corner.label}
+										</div>
+									</div>
+
+									<div class="grid grid-cols-3 gap-2">
+										<div></div>
+
+										<button
+											class={`rounded-xl border px-2 py-2 text-sm transition ${
+												activeDirection === 'up' &&
+												activeCorner === (corner.id as keyof typeof corners)
+													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+											}`}
+											onclick={() => {
+												activeCorner = corner.id as keyof typeof corners;
+												activeGuide = null;
+												activeDirection = 'up';
+												moveCorner(corner.id as keyof typeof corners, 0, -stepSize);
+											}}
+										>
+											↑
+										</button>
+
+										<div></div>
+
+										<button
+											class={`rounded-xl border px-2 py-2 text-sm transition ${
+												activeDirection === 'left' &&
+												activeCorner === (corner.id as keyof typeof corners)
+													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+											}`}
+											onclick={() => {
+												activeCorner = corner.id as keyof typeof corners;
+												activeGuide = null;
+												activeDirection = 'left';
+												moveCorner(corner.id as keyof typeof corners, -stepSize, 0);
+											}}
+										>
+											←
+										</button>
+
+										<button
+											aria-label={`Toggle ${corner.label} arrow control`}
+											class={`flex items-center justify-center rounded-xl border transition ${
+												activeCorner === (corner.id as keyof typeof corners)
+													? 'border-blue-400 bg-blue-500/20'
+													: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
+											}`}
+											onclick={() => toggleCornerActive(corner.id as keyof typeof corners)}
+										>
+											<div
+												class={`h-2 w-2 rounded-full ${
+													activeCorner === (corner.id as keyof typeof corners)
+														? 'bg-blue-400'
+														: 'bg-zinc-500'
+												}`}
+											></div>
+										</button>
+
+										<button
+											class={`rounded-xl border px-2 py-2 text-sm transition ${
+												activeDirection === 'right' &&
+												activeCorner === (corner.id as keyof typeof corners)
+													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+											}`}
+											onclick={() => {
+												activeCorner = corner.id as keyof typeof corners;
+												activeGuide = null;
+												activeDirection = 'right';
+												moveCorner(corner.id as keyof typeof corners, stepSize, 0);
+											}}
+										>
+											→
+										</button>
+
+										<div></div>
+
+										<button
+											class={`rounded-xl border px-2 py-2 text-sm transition ${
+												activeDirection === 'down' &&
+												activeCorner === (corner.id as keyof typeof corners)
+													? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+											}`}
+											onclick={() => {
+												activeCorner = corner.id as keyof typeof corners;
+												activeGuide = null;
+												activeDirection = 'down';
+												moveCorner(corner.id as keyof typeof corners, 0, stepSize);
+											}}
+										>
+											↓
+										</button>
+
+										<div></div>
+									</div>
+								</div>
+							</div>
+						{/each}
+					</div>
 				</section>
 
 				<section
@@ -2302,6 +2409,287 @@
 										Warp preview will appear here
 									</div>
 								{/if}
+							</div>
+						</div>
+					</div>
+					<div class="block xl:hidden grid grid-cols-2 gap-4">
+						<!-- TOP -->
+						<div class="flex items-center justify-center p-3">
+							<div class="w-full max-w-[140px]">
+								<div class="mb-2 text-center">
+									<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+										Top
+									</div>
+								</div>
+
+								<div class="grid grid-cols-3 gap-2">
+									<div></div>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'top' && activeDirection === 'up'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'top';
+											activeCorner = null;
+											activeDirection = 'up';
+											moveGuideAwayFromCenter('top');
+										}}
+									>
+										↑
+									</button>
+
+									<div></div>
+									<div></div>
+
+									<button
+										aria-label="Toggle top guide control"
+										class={`flex h-[37px] w-[41px] items-center justify-center rounded-xl border transition ${
+											activeGuide === 'top'
+												? 'border-blue-400 bg-blue-500/20'
+												: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
+										}`}
+										onclick={() => activateGuide('top')}
+									>
+										<div
+											class={`h-2 w-2 rounded-full ${
+												activeGuide === 'top' ? 'bg-blue-400' : 'bg-zinc-500'
+											}`}
+										></div>
+									</button>
+
+									<div></div>
+									<div></div>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'top' && activeDirection === 'down'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'top';
+											activeCorner = null;
+											activeDirection = 'down';
+											moveGuideTowardCenter('top');
+										}}
+									>
+										↓
+									</button>
+
+									<div></div>
+								</div>
+							</div>
+						</div>
+
+						<!-- RIGHT -->
+						<div class="flex items-center justify-center p-3">
+							<div class="w-full max-w-[140px]">
+								<div class="mb-2 text-center">
+									<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+										Right
+									</div>
+								</div>
+
+								<div class="grid grid-cols-3 gap-2">
+									<div></div>
+									<div></div>
+									<div></div>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'right' && activeDirection === 'left'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'right';
+											activeCorner = null;
+											activeDirection = 'left';
+											moveGuideTowardCenter('right');
+										}}
+									>
+										←
+									</button>
+
+									<button
+										aria-label="Toggle left guide control"
+										class={`flex items-center justify-center rounded-xl border transition ${
+											activeGuide === 'right'
+												? 'border-blue-400 bg-blue-500/20'
+												: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
+										}`}
+										onclick={() => activateGuide('right')}
+									>
+										<div
+											class={`h-2 w-2 rounded-full ${
+												activeGuide === 'right' ? 'bg-blue-400' : 'bg-zinc-500'
+											}`}
+										></div>
+									</button>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'right' && activeDirection === 'right'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'right';
+											activeCorner = null;
+											activeDirection = 'right';
+											moveGuideAwayFromCenter('right');
+										}}
+									>
+										→
+									</button>
+
+									<div></div>
+									<div></div>
+									<div></div>
+								</div>
+							</div>
+						</div>
+
+						<!-- BOTTOM -->
+						<div class="flex items-center justify-center p-3">
+							<div class="w-full max-w-[140px]">
+								<div class="mb-2 text-center">
+									<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+										Bottom
+									</div>
+								</div>
+
+								<div class="grid grid-cols-3 gap-2">
+									<div></div>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'bottom' && activeDirection === 'up'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'bottom';
+											activeCorner = null;
+											activeDirection = 'up';
+											moveGuideTowardCenter('bottom');
+										}}
+									>
+										↑
+									</button>
+
+									<div></div>
+									<div></div>
+
+									<button
+										aria-label="Toggle bottom guide control"
+										class={`flex h-[37px] w-[41px] items-center justify-center rounded-xl border transition ${
+											activeGuide === 'bottom'
+												? 'border-blue-400 bg-blue-500/20'
+												: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
+										}`}
+										onclick={() => activateGuide('bottom')}
+									>
+										<div
+											class={`h-2 w-2 rounded-full ${
+												activeGuide === 'bottom' ? 'bg-blue-400' : 'bg-zinc-500'
+											}`}
+										></div>
+									</button>
+
+									<div></div>
+									<div></div>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'bottom' && activeDirection === 'down'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'bottom';
+											activeCorner = null;
+											activeDirection = 'down';
+											moveGuideAwayFromCenter('bottom');
+										}}
+									>
+										↓
+									</button>
+
+									<div></div>
+								</div>
+							</div>
+						</div>
+
+						<!-- LEFT -->
+						<div class="flex items-center justify-center p-3">
+							<div class="w-full max-w-[140px]">
+								<div class="mb-2 text-center">
+									<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+										Left
+									</div>
+								</div>
+
+								<div class="grid grid-cols-3 gap-2">
+									<div></div>
+									<div></div>
+									<div></div>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'left' && activeDirection === 'left'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'left';
+											activeCorner = null;
+											activeDirection = 'left';
+											moveGuideAwayFromCenter('left');
+										}}
+									>
+										←
+									</button>
+
+									<button
+										aria-label="Toggle right guide control"
+										class={`flex items-center justify-center rounded-xl border transition ${
+											activeGuide === 'left'
+												? 'border-blue-400 bg-blue-500/20'
+												: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
+										}`}
+										onclick={() => activateGuide('left')}
+									>
+										<div
+											class={`h-2 w-2 rounded-full ${
+												activeGuide === 'left' ? 'bg-blue-400' : 'bg-zinc-500'
+											}`}
+										></div>
+									</button>
+
+									<button
+										class={`rounded-xl border px-2 py-2 text-sm transition ${
+											activeGuide === 'left' && activeDirection === 'right'
+												? 'border-blue-400 bg-zinc-800 ring-2 ring-blue-400'
+												: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
+										}`}
+										onclick={() => {
+											activeGuide = 'left';
+											activeCorner = null;
+											activeDirection = 'right';
+											moveGuideTowardCenter('left');
+										}}
+									>
+										→
+									</button>
+
+									<div></div>
+									<div></div>
+									<div></div>
+								</div>
 							</div>
 						</div>
 					</div>
