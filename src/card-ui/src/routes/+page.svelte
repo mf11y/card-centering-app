@@ -1014,9 +1014,15 @@
 	}
 
 	function stopGuideDrag() {
-		draggingGuide = null;
 		window.removeEventListener('pointermove', onGuidePointerMove);
 		window.removeEventListener('pointerup', stopGuideDrag);
+
+		if (draggingGuide) {
+			activeGuide = draggingGuide;
+			activeCorner = null;
+		}
+
+		draggingGuide = null;
 	}
 
 	function startGuideDrag(e: PointerEvent, guideKey: GuideKey) {
@@ -1805,6 +1811,15 @@
 												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
 												style={`top: ${guideInsetsPx.top}px;`}
 												onpointerdown={(e) => startGuideDrag(e, 'top')}
+												onclick={(e) => {
+													e.stopPropagation();
+													activeGuide = 'top';
+													activeCorner = null;
+												}}
+												onfocus={() => {
+													activeGuide = 'top';
+													activeCorner = null;
+												}}
 											></button>
 
 											<!-- bottom -->
@@ -1814,6 +1829,15 @@
 												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
 												style={`top: ${warpDisplayedImageRect.height - guideInsetsPx.bottom}px;`}
 												onpointerdown={(e) => startGuideDrag(e, 'bottom')}
+												onclick={(e) => {
+													e.stopPropagation();
+													activeGuide = 'bottom';
+													activeCorner = null;
+												}}
+												onfocus={() => {
+													activeGuide = 'bottom';
+													activeCorner = null;
+												}}
 											></button>
 
 											<!-- left -->
@@ -1823,6 +1847,15 @@
 												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
 												style={`left: ${guideInsetsPx.left}px;`}
 												onpointerdown={(e) => startGuideDrag(e, 'left')}
+												onclick={(e) => {
+													e.stopPropagation();
+													activeGuide = 'left';
+													activeCorner = null;
+												}}
+												onfocus={() => {
+													activeGuide = 'left';
+													activeCorner = null;
+												}}
 											></button>
 
 											<!-- right -->
@@ -1832,6 +1865,15 @@
 												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
 												style={`left: ${warpDisplayedImageRect.width - guideInsetsPx.right}px;`}
 												onpointerdown={(e) => startGuideDrag(e, 'right')}
+												onclick={(e) => {
+													e.stopPropagation();
+													activeGuide = 'right';
+													activeCorner = null;
+												}}
+												onfocus={() => {
+													activeGuide = 'right';
+													activeCorner = null;
+												}}
 											></button>
 
 											{#if activeGuide === 'top'}
