@@ -208,6 +208,8 @@
 	let didDragCorner = $state(false);
 	let suppressClearSelectionUntil = 0;
 
+	let draggingGuide = $state<GuideKey | null>(null);
+
 	function onPointerMove(e: PointerEvent) {
 		if (!draggingCorner || !imageEl) return;
 
@@ -267,11 +269,19 @@
 		if (warpedImageUrl?.startsWith('blob:')) {
 			URL.revokeObjectURL(warpedImageUrl);
 		}
+
 		if (segmentationMaskUrl?.startsWith('blob:')) {
 			URL.revokeObjectURL(segmentationMaskUrl);
 		}
+
 		if (nudgeWarpTimeout) {
 			clearTimeout(nudgeWarpTimeout);
+		}
+
+		// ✅ only clean up if actively dragging
+		if (draggingGuide) {
+			window.removeEventListener('pointermove', onGuidePointerMove);
+			window.removeEventListener('pointerup', stopGuideDrag);
 		}
 	});
 
@@ -973,6 +983,52 @@
 		} catch (error) {
 			console.error('Failed to capture warp preview:', error);
 		}
+	}
+
+	function onGuidePointerMove(e: PointerEvent) {
+		if (!draggingGuide || !warpContainerEl) return;
+
+		const rect = warpContainerEl.getBoundingClientRect();
+
+		const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+		const localY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+
+		if (draggingGuide === 'top') {
+			guideInsetsPx.top = Math.max(0, Math.min(rect.height, localY));
+			return;
+		}
+
+		if (draggingGuide === 'bottom') {
+			guideInsetsPx.bottom = Math.max(0, Math.min(rect.height, rect.height - localY));
+			return;
+		}
+
+		if (draggingGuide === 'left') {
+			guideInsetsPx.left = Math.max(0, Math.min(rect.width, localX));
+			return;
+		}
+
+		if (draggingGuide === 'right') {
+			guideInsetsPx.right = Math.max(0, Math.min(rect.width, rect.width - localX));
+		}
+	}
+
+	function stopGuideDrag() {
+		draggingGuide = null;
+		window.removeEventListener('pointermove', onGuidePointerMove);
+		window.removeEventListener('pointerup', stopGuideDrag);
+	}
+
+	function startGuideDrag(e: PointerEvent, guideKey: GuideKey) {
+		e.stopPropagation();
+		e.preventDefault();
+
+		activeGuide = guideKey;
+		activeCorner = null;
+		draggingGuide = guideKey;
+
+		window.addEventListener('pointermove', onGuidePointerMove);
+		window.addEventListener('pointerup', stopGuideDrag);
 	}
 </script>
 
@@ -1748,10 +1804,7 @@
 												aria-label="Adjust top guide"
 												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
 												style={`top: ${guideInsetsPx.top}px;`}
-												onclick={(e) => {
-													e.stopPropagation();
-													toggleGuideActive('top');
-												}}
+												onpointerdown={(e) => startGuideDrag(e, 'top')}
 											></button>
 
 											<!-- bottom -->
@@ -1760,10 +1813,7 @@
 												aria-label="Adjust bottom guide"
 												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
 												style={`top: ${warpDisplayedImageRect.height - guideInsetsPx.bottom}px;`}
-												onclick={(e) => {
-													e.stopPropagation();
-													toggleGuideActive('bottom');
-												}}
+												onpointerdown={(e) => startGuideDrag(e, 'bottom')}
 											></button>
 
 											<!-- left -->
@@ -1772,10 +1822,7 @@
 												aria-label="Adjust left guide"
 												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
 												style={`left: ${guideInsetsPx.left}px;`}
-												onclick={(e) => {
-													e.stopPropagation();
-													toggleGuideActive('left');
-												}}
+												onpointerdown={(e) => startGuideDrag(e, 'left')}
 											></button>
 
 											<!-- right -->
@@ -1784,10 +1831,7 @@
 												aria-label="Adjust right guide"
 												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
 												style={`left: ${warpDisplayedImageRect.width - guideInsetsPx.right}px;`}
-												onclick={(e) => {
-													e.stopPropagation();
-													toggleGuideActive('right');
-												}}
+												onpointerdown={(e) => startGuideDrag(e, 'right')}
 											></button>
 
 											{#if activeGuide === 'top'}
