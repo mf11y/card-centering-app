@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { html2canvas } from 'html2canvas-pro';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
 	import type { Quad } from '../lib/card-centering/geometry';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
@@ -93,6 +94,10 @@
 	const CORNER_ZOOM_SIZE = 280; // displayed canvas size
 
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
+
+	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
+
+	let screenshotMode = $state(false);
 
 	function scheduleNudgeWarp() {
 		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
@@ -934,6 +939,43 @@
 			activeGuide = null;
 		}
 	}
+
+async function captureWarpPanel() {
+	if (!warpScreenshotEl) {
+		console.log('No warpScreenshotEl');
+		return;
+	}
+
+	try {
+		const canvas = await html2canvas(warpScreenshotEl, {
+			backgroundColor: null,
+			scale: 2,
+			useCORS: true,
+			logging: false
+		});
+
+		canvas.toBlob((blob) => {
+			if (!blob) {
+				console.error('Failed to create blob from canvas');
+				return;
+			}
+
+			const blobUrl = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = blobUrl;
+			a.download = 'card-centering-warp-preview.png';
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+
+			setTimeout(() => {
+				URL.revokeObjectURL(blobUrl);
+			}, 1000);
+		}, 'image/png');
+	} catch (error) {
+		console.error('Failed to capture warp preview:', error);
+	}
+}
 </script>
 
 <div
@@ -1194,7 +1236,10 @@
 										Click on corners of second panel to adjust lines to sides of card. WASD, arrow
 										pads, directional keys, and mouse can be used to adjust.
 									</li>
-									<li>Use the warp preview to verify alignment. WASD and directional keys can be used to adjust</li>
+									<li>
+										Use the warp preview to verify alignment. WASD and directional keys can be used
+										to adjust
+									</li>
 									<li>
 										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
 										standards.
@@ -1209,15 +1254,6 @@
 						</div>
 					</div>
 				</section>
-
-
-
-
-
-
-
-
-
 
 				<section
 					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
@@ -1408,7 +1444,6 @@
 															}}
 															data-source-corner="true"
 															data-corner-key={corner.key}
-
 														>
 															<div
 																class={`h-7 w-7 transition ${
@@ -1473,13 +1508,6 @@
 					</div>
 				</section>
 
-
-
-
-
-
-
-
 				<section
 					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
@@ -1491,19 +1519,37 @@
 							<p class="text-xs text-zinc-500">Live output from current corner positions</p>
 						</div>
 
-						<button
-							class="ml-auto mr-1 text-xl transition-transform hover:scale-110 active:scale-95"
-							onclick={() => (isDark = !isDark)}
-							type="button"
-						>
-							{isDark ? '☀️' : '🌙'}
-						</button>
+						<div class="ml-auto flex items-center gap-3">
+							<button
+								class="text-xl transition-transform hover:scale-110 active:scale-95"
+								onclick={captureWarpPanel}
+								type="button"
+								title="Capture"
+							>
+								📸
+							</button>
+
+							<button
+								class="text-xl transition-transform hover:scale-110 active:scale-95"
+								onclick={() => (isDark = !isDark)}
+								type="button"
+								title="Toggle theme"
+							>
+								{isDark ? '☀️' : '🌙'}
+							</button>
+						</div>
 					</div>
 
 					<div
+						bind:this={warpScreenshotEl}
 						class={`flex flex-col gap-4 p-5 transition-colors duration-300 ${
-							isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white text-zinc-900'
+							screenshotMode ? '' : isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white text-zinc-900'
 						}`}
+						style={screenshotMode
+							? isDark
+								? 'background-color:#18181b;color:#f4f4f5;'
+								: 'background-color:#ffffff;color:#18181b;'
+							: ''}
 					>
 						<!-- Centering Metrics -->
 						<div class="grid shrink-0 grid-cols-2 gap-4 text-sm">
@@ -1513,7 +1559,10 @@
 									Vertical Centering
 								</div>
 
-								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+								<div
+									class={`rounded-lg p-4 ${screenshotMode ? '' : 'border border-zinc-800 bg-zinc-950/60'}`}
+									style={screenshotMode ? 'border:1px solid #3f3f46;background-color:#09090b;' : ''}
+								>
 									<div class="relative grid grid-cols-2 gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Top</div>
@@ -1566,7 +1615,10 @@
 									Horizontal Centering
 								</div>
 
-								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+								<div
+									class={`rounded-lg p-4 ${screenshotMode ? '' : 'border border-zinc-800 bg-zinc-950/60'}`}
+									style={screenshotMode ? 'border:1px solid #3f3f46;background-color:#09090b;' : ''}
+								>
 									<div class="relative grid grid-cols-2 gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Left</div>
@@ -1619,7 +1671,8 @@
 						<!-- Warp Image -->
 						<div class="grid place-items-center overflow-hidden">
 							<div
-								class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] bg-zinc-950"
+								class={`relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] ${screenshotMode ? '' : 'bg-zinc-950'}`}
+								style={screenshotMode ? 'background-color:#09090b;' : ''}
 								bind:this={warpContainerEl}
 								role="button"
 								tabindex="0"
