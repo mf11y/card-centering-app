@@ -89,7 +89,7 @@
 
 	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
 
-	const CORNER_PATCH_RADIUS = 140; // source pixels around the selected corner
+	const CORNER_PATCH_RADIUS = 120; // source pixels around the selected corner
 	const CORNER_ZOOM_SIZE = 280; // displayed canvas size
 
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
@@ -1210,6 +1210,15 @@
 					</div>
 				</section>
 
+
+
+
+
+
+
+
+
+
 				<section
 					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
@@ -1455,7 +1464,7 @@
 											bind:this={cornerZoomCanvas}
 											width={CORNER_ZOOM_SIZE}
 											height={CORNER_ZOOM_SIZE}
-											class="h-[220px] w-[220px]"
+											class="h-[250px] w-[250px]"
 										></canvas>
 									</div>
 								</div>
@@ -1463,6 +1472,13 @@
 						</div>
 					</div>
 				</section>
+
+
+
+
+
+
+
 
 				<section
 					class="justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
