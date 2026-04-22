@@ -1630,8 +1630,7 @@
 										pads, directional keys, and mouse can be used to adjust.
 									</li>
 									<li>
-										Use the warp preview to verify alignment. WASD and directional keys can be used
-										to adjust
+										Use the warp preview to verify alignment. WASD, arrow pads, directional keys, and mouse can be used to adjust.
 									</li>
 									<li>
 										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
@@ -1695,187 +1694,187 @@
 									disabled={!!imageUrl}
 								/>
 
-									<div class="absolute inset-0 overflow-hidden rounded-xl" bind:this={containerEl}>
-										{#if imageUrl}
-											<div
-												class="absolute inset-0 touch-none"
-												role="button"
-												tabindex="0"
-												bind:this={sourceFocusTrapEl}
-												onclick={clearActiveSelection}
-												onkeydown={(e) => {
-													handleSourceTrapKeydown(e);
+								<div class="absolute inset-0 overflow-hidden rounded-xl" bind:this={containerEl}>
+									{#if imageUrl}
+										<div
+											class="absolute inset-0 touch-none"
+											role="button"
+											tabindex="0"
+											bind:this={sourceFocusTrapEl}
+											onclick={clearActiveSelection}
+											onkeydown={(e) => {
+												handleSourceTrapKeydown(e);
 
-													if (e.key === 'Enter' || e.key === ' ') {
-														e.preventDefault();
-														clearActiveSelection();
-													}
-												}}
-											>
-												<!-- fixed review viewport -->
-												<div class="absolute inset-0 overflow-hidden rounded-xl">
-													<!-- static background fill so no black bars ever appear -->
-													{#if !autoZoomToCorners && !frozenZoom}
-														<img
-															src={imageUrl}
-															alt=""
-															aria-hidden="true"
-															class="absolute inset-0 h-full w-full object-cover opacity-100"
-															draggable="false"
-														/>
-													{:else}
-														<div class="absolute inset-0 bg-zinc-950"></div>
-													{/if}
+												if (e.key === 'Enter' || e.key === ' ') {
+													e.preventDefault();
+													clearActiveSelection();
+												}
+											}}
+										>
+											<!-- fixed review viewport -->
+											<div class="absolute inset-0 overflow-hidden rounded-xl">
+												<!-- static background fill so no black bars ever appear -->
+												{#if !autoZoomToCorners && !frozenZoom}
+													<img
+														src={imageUrl}
+														alt=""
+														aria-hidden="true"
+														class="absolute inset-0 h-full w-full object-cover opacity-100"
+														draggable="false"
+													/>
+												{:else}
+													<div class="absolute inset-0 bg-zinc-950"></div>
+												{/if}
 
-													<!-- fixed image plane -->
-													<div
-														class="absolute overflow-hidden"
-														style={`
+												<!-- fixed image plane -->
+												<div
+													class="absolute overflow-hidden"
+													style={`
 															left: ${displayedImageRect.x}px;
 															top: ${displayedImageRect.y}px;
 															width: ${displayedImageRect.width}px;
 															height: ${displayedImageRect.height}px;
 															${getZoomStyleLocal()}
 														`}
-													>
-														<div class="absolute inset-0">
-															<img
-																bind:this={imageEl}
-																src={imageUrl}
-																alt="Uploaded source"
-																class="block h-full w-full object-contain"
-																draggable="false"
-																ondragstart={(e) => e.preventDefault()}
-																onload={async () => {
-																	updateSize();
+												>
+													<div class="absolute inset-0">
+														<img
+															bind:this={imageEl}
+															src={imageUrl}
+															alt="Uploaded source"
+															class="block h-full w-full object-contain"
+															draggable="false"
+															ondragstart={(e) => e.preventDefault()}
+															onload={async () => {
+																updateSize();
 
-																	if (pendingDetection) {
-																		pendingDetection = false;
-																		await runSegmentationInBrowser();
-																	}
-																	setTimeout(() => {
-																		imageReadyForControls = true;
-																	}, 10);
-																}}
+																if (pendingDetection) {
+																	pendingDetection = false;
+																	await runSegmentationInBrowser();
+																}
+																setTimeout(() => {
+																	imageReadyForControls = true;
+																}, 10);
+															}}
+														/>
+
+														<svg class="pointer-events-none absolute inset-0 h-full w-full">
+															<line
+																x1={imageXToPercent(corners.topLeft.x)}
+																y1={imageYToPercent(corners.topLeft.y)}
+																x2={imageXToPercent(corners.topRight.x)}
+																y2={imageYToPercent(corners.topRight.y)}
+																stroke="#22d3ee"
+																stroke-width="2"
+																stroke-dasharray="8 6"
+																opacity="1"
 															/>
 
-															<svg class="pointer-events-none absolute inset-0 h-full w-full">
-																<line
-																	x1={imageXToPercent(corners.topLeft.x)}
-																	y1={imageYToPercent(corners.topLeft.y)}
-																	x2={imageXToPercent(corners.topRight.x)}
-																	y2={imageYToPercent(corners.topRight.y)}
-																	stroke="#22d3ee"
-																	stroke-width="2"
-																	stroke-dasharray="8 6"
-																	opacity="1"
-																/>
+															<line
+																x1={imageXToPercent(corners.topRight.x)}
+																y1={imageYToPercent(corners.topRight.y)}
+																x2={imageXToPercent(corners.bottomRight.x)}
+																y2={imageYToPercent(corners.bottomRight.y)}
+																stroke="#22d3ee"
+																stroke-width="2"
+																stroke-dasharray="8 6"
+																opacity="1"
+															/>
 
-																<line
-																	x1={imageXToPercent(corners.topRight.x)}
-																	y1={imageYToPercent(corners.topRight.y)}
-																	x2={imageXToPercent(corners.bottomRight.x)}
-																	y2={imageYToPercent(corners.bottomRight.y)}
-																	stroke="#22d3ee"
-																	stroke-width="2"
-																	stroke-dasharray="8 6"
-																	opacity="1"
-																/>
+															<line
+																x1={imageXToPercent(corners.bottomRight.x)}
+																y1={imageYToPercent(corners.bottomRight.y)}
+																x2={imageXToPercent(corners.bottomLeft.x)}
+																y2={imageYToPercent(corners.bottomLeft.y)}
+																stroke="#22d3ee"
+																stroke-width="2"
+																stroke-dasharray="8 6"
+																opacity="1"
+															/>
 
-																<line
-																	x1={imageXToPercent(corners.bottomRight.x)}
-																	y1={imageYToPercent(corners.bottomRight.y)}
-																	x2={imageXToPercent(corners.bottomLeft.x)}
-																	y2={imageYToPercent(corners.bottomLeft.y)}
-																	stroke="#22d3ee"
-																	stroke-width="2"
-																	stroke-dasharray="8 6"
-																	opacity="1"
-																/>
-
-																<line
-																	x1={imageXToPercent(corners.bottomLeft.x)}
-																	y1={imageYToPercent(corners.bottomLeft.y)}
-																	x2={imageXToPercent(corners.topLeft.x)}
-																	y2={imageYToPercent(corners.topLeft.y)}
-																	stroke="#22d3ee"
-																	stroke-width="2"
-																	stroke-dasharray="8 6"
-																	opacity="1"
-																/>
-															</svg>
-														</div>
-														{#each cornerOverlayItems as corner}
-															<button
-																type="button"
-																aria-label={`Toggle ${corner.key} arrow control`}
-																aria-pressed={activeCorner === corner.key}
-																class="absolute z-10 flex h-10 w-10 items-center justify-center"
-																style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
-																style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
-																style:transform={corner.key === 'topLeft'
-																	? 'translate(-85%, -85%)'
-																	: corner.key === 'topRight'
-																		? 'translate(-15%, -85%)'
-																		: corner.key === 'bottomLeft'
-																			? 'translate(-85%, -15%)'
-																			: 'translate(-15%, -15%)'}
-																onpointerdown={(e) => {
-																	e.stopPropagation();
-																	e.preventDefault();
-
-																	activeCorner = corner.key;
-																	activeGuide = null;
-																	draggingCorner = corner.key;
-																	didDragCorner = false;
-
-																	window.addEventListener('pointermove', onPointerMove);
-																	window.addEventListener('pointerup', stopDrag);
-																}}
-																onclick={(e) => {
-																	e.stopPropagation();
-																	activeCorner = corner.key;
-																	activeGuide = null;
-																}}
-																data-source-corner="true"
-																data-corner-key={corner.key}
-															>
-																<div
-																	class={`h-7 w-7 transition ${
-																		activeCorner === corner.key
-																			? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
-																			: 'text-cyan-400 hover:text-green-300'
-																	}`}
-																>
-																	<svg
-																		viewBox="0 0 24 24"
-																		fill="none"
-																		stroke="currentColor"
-																		stroke-width="2.25"
-																		stroke-linecap="round"
-																		stroke-linejoin="round"
-																		class={`h-full w-full ${
-																			corner.key === 'topLeft'
-																				? 'rotate-180'
-																				: corner.key === 'topRight'
-																					? '-rotate-90'
-																					: corner.key === 'bottomRight'
-																						? 'rotate-0'
-																						: 'rotate-90'
-																		}`}
-																		aria-hidden="true"
-																	>
-																		<path d="M19 19L5 5" />
-																		<path d="M5 11V5H11" />
-																	</svg>
-																</div></button
-															>
-														{/each}
+															<line
+																x1={imageXToPercent(corners.bottomLeft.x)}
+																y1={imageYToPercent(corners.bottomLeft.y)}
+																x2={imageXToPercent(corners.topLeft.x)}
+																y2={imageYToPercent(corners.topLeft.y)}
+																stroke="#22d3ee"
+																stroke-width="2"
+																stroke-dasharray="8 6"
+																opacity="1"
+															/>
+														</svg>
 													</div>
+													{#each cornerOverlayItems as corner}
+														<button
+															type="button"
+															aria-label={`Toggle ${corner.key} arrow control`}
+															aria-pressed={activeCorner === corner.key}
+															class="absolute z-10 flex h-10 w-10 items-center justify-center"
+															style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+															style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+															style:transform={corner.key === 'topLeft'
+																? 'translate(-85%, -85%)'
+																: corner.key === 'topRight'
+																	? 'translate(-15%, -85%)'
+																	: corner.key === 'bottomLeft'
+																		? 'translate(-85%, -15%)'
+																		: 'translate(-15%, -15%)'}
+															onpointerdown={(e) => {
+																e.stopPropagation();
+																e.preventDefault();
+
+																activeCorner = corner.key;
+																activeGuide = null;
+																draggingCorner = corner.key;
+																didDragCorner = false;
+
+																window.addEventListener('pointermove', onPointerMove);
+																window.addEventListener('pointerup', stopDrag);
+															}}
+															onclick={(e) => {
+																e.stopPropagation();
+																activeCorner = corner.key;
+																activeGuide = null;
+															}}
+															data-source-corner="true"
+															data-corner-key={corner.key}
+														>
+															<div
+																class={`h-7 w-7 transition ${
+																	activeCorner === corner.key
+																		? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
+																		: 'text-cyan-400 hover:text-green-300'
+																}`}
+															>
+																<svg
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2.25"
+																	stroke-linecap="round"
+																	stroke-linejoin="round"
+																	class={`h-full w-full ${
+																		corner.key === 'topLeft'
+																			? 'rotate-180'
+																			: corner.key === 'topRight'
+																				? '-rotate-90'
+																				: corner.key === 'bottomRight'
+																					? 'rotate-0'
+																					: 'rotate-90'
+																	}`}
+																	aria-hidden="true"
+																>
+																	<path d="M19 19L5 5" />
+																	<path d="M5 11V5H11" />
+																</svg>
+															</div></button
+														>
+													{/each}
 												</div>
 											</div>
-										{/if}
-									</div>
+										</div>
+									{/if}
+								</div>
 								{#if imageUrl && activeCorner}
 									<div
 										class="pointer-events-none absolute z-20 flex items-center justify-center"
