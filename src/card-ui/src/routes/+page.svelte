@@ -1218,6 +1218,12 @@
 											<div class="w-full max-w-[140px]">
 												<div class="mb-2 text-center"></div>
 
+																							<div class="mb-2 text-center">
+												<div class="text-xs font-medium tracking-[0.2em] text-zinc-400 uppercase">
+													{corner.label}
+												</div>
+											</div>
+
 												<div class="grid grid-cols-3 gap-2">
 													<div></div>
 
@@ -1292,7 +1298,10 @@
 														→
 													</button>
 
+													
+
 													<div></div>
+													
 
 													<button
 														class={`rounded-xl border px-2 py-2 text-sm transition ${
@@ -1352,7 +1361,7 @@
 
 												<button
 													aria-label="Toggle top guide control"
-													class={`flex items-center justify-center rounded-xl border transition ${
+													class={`flex h-[37px] w-[41px] items-center justify-center rounded-xl border transition ${
 														activeGuide === 'top'
 															? 'border-blue-400 bg-blue-500/20'
 															: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
@@ -1494,7 +1503,7 @@
 
 												<button
 													aria-label="Toggle bottom guide control"
-													class={`flex items-center justify-center rounded-xl border transition ${
+													class={`flex h-[37px] w-[41px] items-center justify-center rounded-xl border transition ${
 														activeGuide === 'bottom'
 															? 'border-blue-400 bg-blue-500/20'
 															: 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800'
