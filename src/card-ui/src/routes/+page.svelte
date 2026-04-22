@@ -97,8 +97,6 @@
 
 	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
 
-	let screenshotMode = $state(false);
-
 	function scheduleNudgeWarp() {
 		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
 
@@ -940,42 +938,42 @@
 		}
 	}
 
-async function captureWarpPanel() {
-	if (!warpScreenshotEl) {
-		console.log('No warpScreenshotEl');
-		return;
+	async function captureWarpPanel() {
+		if (!warpScreenshotEl) {
+			console.log('No warpScreenshotEl');
+			return;
+		}
+
+		try {
+			const canvas = await html2canvas(warpScreenshotEl, {
+				backgroundColor: null,
+				scale: 2,
+				useCORS: true,
+				logging: false
+			});
+
+			canvas.toBlob((blob) => {
+				if (!blob) {
+					console.error('Failed to create blob from canvas');
+					return;
+				}
+
+				const blobUrl = URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = blobUrl;
+				a.download = 'card-centering-warp-preview.png';
+				document.body.appendChild(a);
+				a.click();
+				a.remove();
+
+				setTimeout(() => {
+					URL.revokeObjectURL(blobUrl);
+				}, 1000);
+			}, 'image/png');
+		} catch (error) {
+			console.error('Failed to capture warp preview:', error);
+		}
 	}
-
-	try {
-		const canvas = await html2canvas(warpScreenshotEl, {
-			backgroundColor: null,
-			scale: 2,
-			useCORS: true,
-			logging: false
-		});
-
-		canvas.toBlob((blob) => {
-			if (!blob) {
-				console.error('Failed to create blob from canvas');
-				return;
-			}
-
-			const blobUrl = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = blobUrl;
-			a.download = 'card-centering-warp-preview.png';
-			document.body.appendChild(a);
-			a.click();
-			a.remove();
-
-			setTimeout(() => {
-				URL.revokeObjectURL(blobUrl);
-			}, 1000);
-		}, 'image/png');
-	} catch (error) {
-		console.error('Failed to capture warp preview:', error);
-	}
-}
 </script>
 
 <div
@@ -1544,13 +1542,8 @@ async function captureWarpPanel() {
 					<div
 						bind:this={warpScreenshotEl}
 						class={`flex flex-col gap-4 p-5 transition-colors duration-300 ${
-							screenshotMode ? '' : isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white text-zinc-900'
+							isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white text-zinc-900'
 						}`}
-						style={screenshotMode
-							? isDark
-								? 'background-color:#18181b;color:#f4f4f5;'
-								: 'background-color:#ffffff;color:#18181b;'
-							: ''}
 					>
 						<!-- Centering Metrics -->
 						<div class="grid shrink-0 grid-cols-2 gap-4 text-sm">
@@ -1560,10 +1553,7 @@ async function captureWarpPanel() {
 									Vertical Centering
 								</div>
 
-								<div
-									class={`rounded-lg p-4 ${screenshotMode ? '' : 'border border-zinc-800 bg-zinc-950/60'}`}
-									style={screenshotMode ? 'border:1px solid #3f3f46;background-color:#09090b;' : ''}
-								>
+								<div class={`rounded-lg border border-zinc-800 bg-zinc-950/60 p-4`}>
 									<div class="relative grid grid-cols-2 gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Top</div>
@@ -1590,20 +1580,20 @@ async function captureWarpPanel() {
 										</div>
 
 										<svg
-											class="pointer-events-none absolute inset-y-2 left-1/2 h-[calc(100%-1rem)] w-[2px] -translate-x-1/2"
-											viewBox="0 0 2 100"
+											class="pointer-events-none absolute inset-0 h-full w-full"
+											viewBox="0 0 100 100"
 											preserveAspectRatio="none"
 											aria-hidden="true"
 										>
 											<line
-												x1="1"
-												y1="0"
-												x2="1"
-												y2="100"
-												stroke="rgb(82 82 91 / 0.6)"
-												stroke-width="1"
+												x1="50"
+												y1="16"
+												x2="50"
+												y2="84"
+												stroke="rgb(82 82 91)"
+												stroke-width="1.5"
+												opacity="0.7"
 												vector-effect="non-scaling-stroke"
-												shape-rendering="crispEdges"
 											/>
 										</svg>
 									</div>
@@ -1616,10 +1606,7 @@ async function captureWarpPanel() {
 									Horizontal Centering
 								</div>
 
-								<div
-									class={`rounded-lg p-4 ${screenshotMode ? '' : 'border border-zinc-800 bg-zinc-950/60'}`}
-									style={screenshotMode ? 'border:1px solid #3f3f46;background-color:#09090b;' : ''}
-								>
+								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
 									<div class="relative grid grid-cols-2 gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Left</div>
@@ -1648,20 +1635,20 @@ async function captureWarpPanel() {
 										</div>
 
 										<svg
-											class="pointer-events-none absolute inset-y-2 left-1/2 h-[calc(100%-1rem)] w-[2px] -translate-x-1/2"
-											viewBox="0 0 2 100"
+											class="pointer-events-none absolute inset-0 h-full w-full"
+											viewBox="0 0 100 100"
 											preserveAspectRatio="none"
 											aria-hidden="true"
 										>
 											<line
-												x1="1"
-												y1="0"
-												x2="1"
-												y2="100"
-												stroke="rgb(82 82 91 / 0.6)"
-												stroke-width="1"
+												x1="50"
+												y1="16"
+												x2="50"
+												y2="84"
+												stroke="rgb(82 82 91)"
+												stroke-width="1.5"
+												opacity="0.7"
 												vector-effect="non-scaling-stroke"
-												shape-rendering="crispEdges"
 											/>
 										</svg>
 									</div>
@@ -1672,8 +1659,7 @@ async function captureWarpPanel() {
 						<!-- Warp Image -->
 						<div class="grid place-items-center overflow-hidden">
 							<div
-								class={`relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] ${screenshotMode ? '' : 'bg-zinc-950'}`}
-								style={screenshotMode ? 'background-color:#09090b;' : ''}
+								class="relative aspect-[5/7] w-[500px] max-w-[min(40vw,500px)] bg-zinc-950"
 								bind:this={warpContainerEl}
 								role="button"
 								tabindex="0"
