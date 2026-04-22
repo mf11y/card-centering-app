@@ -1245,6 +1245,7 @@ async function captureWarpPanel() {
 										standards.
 									</li>
 									<li>Day/Night mode in the warp preview can be used to help find border edge.</li>
+									<li>Snapshot of warp preview panel can be taken with camera icon.</li>
 								</ul>
 
 								<p class="pt-2">
