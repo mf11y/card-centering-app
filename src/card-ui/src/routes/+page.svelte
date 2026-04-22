@@ -87,6 +87,13 @@
 
 	const NUDGE_WARP_DELAY = 150;
 
+	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
+
+	const CORNER_PATCH_RADIUS = 140; // source pixels around the selected corner
+	const CORNER_ZOOM_SIZE = 280; // displayed canvas size
+
+	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
+
 	function scheduleNudgeWarp() {
 		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
 
@@ -95,6 +102,23 @@
 			nudgeWarpTimeout = null;
 		}, NUDGE_WARP_DELAY);
 	}
+
+	$effect(() => {
+		activeCorner;
+		corners.topLeft.x;
+		corners.topLeft.y;
+		corners.topRight.x;
+		corners.topRight.y;
+		corners.bottomRight.x;
+		corners.bottomRight.y;
+		corners.bottomLeft.x;
+		corners.bottomLeft.y;
+		imageUrl;
+
+		setTimeout(() => {
+			drawCornerZoomPatch();
+		}, 0);
+	});
 
 	$effect(() => {
 		const shouldShow = !imageReadyForControls || isSegmenting;
@@ -778,6 +802,138 @@
 			corners
 		});
 	}
+
+	function getCornerPoint(cornerKey: keyof typeof corners) {
+		return corners[cornerKey];
+	}
+
+	function getPrevCornerKey(cornerKey: keyof typeof corners): keyof typeof corners {
+		if (cornerKey === 'topLeft') return 'bottomLeft';
+		if (cornerKey === 'topRight') return 'topLeft';
+		if (cornerKey === 'bottomRight') return 'topRight';
+		return 'bottomRight';
+	}
+
+	function getNextCornerKey(cornerKey: keyof typeof corners): keyof typeof corners {
+		if (cornerKey === 'topLeft') return 'topRight';
+		if (cornerKey === 'topRight') return 'bottomRight';
+		if (cornerKey === 'bottomRight') return 'bottomLeft';
+		return 'topLeft';
+	}
+
+	function drawCornerZoomPatch() {
+		if (!cornerZoomCanvas || !imageEl || !activeCorner) return;
+
+		const ctx = cornerZoomCanvas.getContext('2d');
+		if (!ctx) return;
+
+		const naturalWidth = imageEl.naturalWidth;
+		const naturalHeight = imageEl.naturalHeight;
+
+		if (!naturalWidth || !naturalHeight) return;
+
+		const cornerPt = getCornerPoint(activeCorner);
+
+		const sx = Math.round(cornerPt.x - CORNER_PATCH_RADIUS);
+		const sy = Math.round(cornerPt.y - CORNER_PATCH_RADIUS);
+		const sw = CORNER_PATCH_RADIUS * 2;
+		const sh = CORNER_PATCH_RADIUS * 2;
+
+		ctx.clearRect(0, 0, CORNER_ZOOM_SIZE, CORNER_ZOOM_SIZE);
+		ctx.imageSmoothingEnabled = false;
+
+		// black background for out-of-bounds areas near image edge
+		ctx.fillStyle = '#09090b';
+		ctx.fillRect(0, 0, CORNER_ZOOM_SIZE, CORNER_ZOOM_SIZE);
+
+		// draw cropped patch from source image
+		ctx.drawImage(imageEl, sx, sy, sw, sh, 0, 0, CORNER_ZOOM_SIZE, CORNER_ZOOM_SIZE);
+
+		// overlay line segments connected to this corner
+		const prevKey = getPrevCornerKey(activeCorner);
+		const nextKey = getNextCornerKey(activeCorner);
+
+		const prevPt = corners[prevKey];
+		const nextPt = corners[nextKey];
+
+		const scale = CORNER_ZOOM_SIZE / (CORNER_PATCH_RADIUS * 2);
+
+		function toPatchX(x: number) {
+			return (x - sx) * scale;
+		}
+
+		function toPatchY(y: number) {
+			return (y - sy) * scale;
+		}
+
+		const cx = toPatchX(cornerPt.x);
+		const cy = toPatchY(cornerPt.y);
+
+		ctx.strokeStyle = '#22d3ee';
+		ctx.lineWidth = 2;
+		ctx.setLineDash([10, 8]);
+		ctx.lineCap = 'round';
+
+		ctx.beginPath();
+		ctx.moveTo(cx, cy);
+		ctx.lineTo(toPatchX(prevPt.x), toPatchY(prevPt.y));
+		ctx.stroke();
+
+		ctx.beginPath();
+		ctx.moveTo(cx, cy);
+		ctx.lineTo(toPatchX(nextPt.x), toPatchY(nextPt.y));
+		ctx.stroke();
+
+		// highlight active corner
+		ctx.setLineDash([]);
+		ctx.fillStyle = '#f87171';
+		ctx.beginPath();
+		ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+		ctx.fill();
+
+		// crosshair
+		ctx.strokeStyle = '#f87171';
+		ctx.lineWidth = 1.5;
+		ctx.beginPath();
+		ctx.moveTo(cx - 16, cy);
+		ctx.lineTo(cx + 16, cy);
+		ctx.moveTo(cx, cy - 16);
+		ctx.lineTo(cx, cy + 16);
+		ctx.stroke();
+	}
+
+	function handleSourceTrapKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Tab' || !sourceFocusTrapEl || !imageUrl) return;
+
+		const focusable = Array.from(
+			sourceFocusTrapEl.querySelectorAll<HTMLButtonElement>('button[data-source-corner="true"]')
+		).filter((el) => !el.disabled);
+
+		if (!focusable.length) return;
+
+		const currentIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
+
+		let nextEl: HTMLButtonElement;
+
+		if (currentIndex === -1) {
+			nextEl = focusable.find((el) => el.getAttribute('aria-pressed') === 'true') ?? focusable[0];
+		} else if (event.shiftKey) {
+			const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+			nextEl = focusable[prevIndex];
+		} else {
+			const nextIndex = currentIndex === focusable.length - 1 ? 0 : currentIndex + 1;
+			nextEl = focusable[nextIndex];
+		}
+
+		event.preventDefault();
+		nextEl.focus();
+
+		const cornerKey = nextEl.dataset.cornerKey as keyof typeof corners | undefined;
+		if (cornerKey) {
+			activeCorner = cornerKey;
+			activeGuide = null;
+		}
+	}
 </script>
 
 <div
@@ -1105,8 +1261,11 @@
 											class="absolute inset-0"
 											role="button"
 											tabindex="0"
+											bind:this={sourceFocusTrapEl}
 											onclick={clearActiveSelection}
 											onkeydown={(e) => {
+												handleSourceTrapKeydown(e);
+
 												if (e.key === 'Enter' || e.key === ' ') {
 													e.preventDefault();
 													clearActiveSelection();
@@ -1238,6 +1397,9 @@
 																activeCorner = corner.key;
 																activeGuide = null;
 															}}
+															data-source-corner="true"
+															data-corner-key={corner.key}
+
 														>
 															<div
 																class={`h-7 w-7 transition ${
@@ -1276,6 +1438,28 @@
 									{/if}
 								</div>
 							</div>
+							{#if imageUrl && activeCorner}
+								<div
+									class="pointer-events-none absolute z-20 flex items-center justify-center"
+									style="
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+		"
+								>
+									<div
+										class="pointer-events-auto bg-transparent p-0"
+										style="box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 6px rgba(34,211,238,0.2);"
+									>
+										<canvas
+											bind:this={cornerZoomCanvas}
+											width={CORNER_ZOOM_SIZE}
+											height={CORNER_ZOOM_SIZE}
+											class="h-[220px] w-[220px]"
+										></canvas>
+									</div>
+								</div>
+							{/if}
 						</div>
 					</div>
 				</section>
