@@ -91,7 +91,7 @@
 	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
 
 	const CORNER_PATCH_RADIUS = 150; // source pixels around the selected corner
-	const CORNER_ZOOM_SIZE = 200; // displayed canvas size
+	const CORNER_ZOOM_SIZE = 150; // displayed canvas size
 
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
 
