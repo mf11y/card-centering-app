@@ -1533,7 +1533,7 @@
 										adjust that same part of the card in the preview panels.
 									</li>
 									<li>
-										Use the source preview to verify alignment. WASD, arrow pads, directional keys,
+										Line up the corners of the card. WASD, arrow pads, directional keys,
 										and mouse can be used to adjust.
 									</li>
 									<li>
