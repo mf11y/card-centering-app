@@ -21,6 +21,7 @@
 		handleInputKeyup,
 		type Direction
 	} from '../lib/card-centering/input';
+	import { fade } from 'svelte/transition';
 
 	let imageFile = $state<File | null>(null);
 	let imageUrl = $state('');
@@ -100,6 +101,8 @@
 	let adjustmentsMode = $state<'corners' | 'guides'>('corners');
 
 	let animateSourceZoom = $state(false);
+
+	let sourceImageVisible = $state(false);
 
 	function scheduleNudgeWarp() {
 		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
@@ -195,6 +198,7 @@
 		pageZoom = 1;
 		stepSize = 1;
 		isDark = true;
+		sourceImageVisible = false;
 	}
 
 	let pageZoom = $state(1);
@@ -322,6 +326,8 @@
 		imageReadyForControls = false;
 
 		animateSourceZoom = false;
+
+		sourceImageVisible = false;
 	}
 
 	function handleFileChange(event: Event) {
@@ -1064,6 +1070,25 @@
 		else if (guideKey === 'left') moveGuide('left', -1);
 		else if (guideKey === 'right') moveGuide('right', -1);
 	}
+
+	async function handleSourceImageLoad() {
+		updateSize();
+
+		// let the image become visible first
+		sourceImageVisible = true;
+
+		// give the browser a couple frames to paint the fade cleanly
+		await tick();
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+
+		imageReadyForControls = true;
+
+		if (pendingDetection) {
+			pendingDetection = false;
+			runSegmentationInBrowser();
+		}
+	}
 </script>
 
 <div
@@ -1722,17 +1747,7 @@
 											<!-- fixed review viewport -->
 											<div class="absolute inset-0 overflow-hidden rounded-xl">
 												<!-- static background fill so no black bars ever appear -->
-												{#if !autoZoomToCorners && !frozenZoom}
-													<img
-														src={imageUrl}
-														alt=""
-														aria-hidden="true"
-														class="absolute inset-0 h-full w-full object-cover opacity-100"
-														draggable="false"
-													/>
-												{:else}
-													<div class="absolute inset-0 bg-zinc-950"></div>
-												{/if}
+												<div class="absolute inset-0 bg-zinc-950"></div>
 
 												<!-- fixed image plane -->
 												<div
@@ -1751,20 +1766,12 @@
 															bind:this={imageEl}
 															src={imageUrl}
 															alt="Uploaded source"
-															class="block h-full w-full object-contain"
+															class={`block h-full w-full object-contain transition-opacity duration-500 ${
+																sourceImageVisible ? 'opacity-100' : 'opacity-0'
+															}`}
 															draggable="false"
 															ondragstart={(e) => e.preventDefault()}
-															onload={async () => {
-																updateSize();
-
-																if (pendingDetection) {
-																	pendingDetection = false;
-																	await runSegmentationInBrowser();
-																}
-																setTimeout(() => {
-																	imageReadyForControls = true;
-																}, 10);
-															}}
+															onload={() => handleSourceImageLoad()}
 														/>
 
 														<svg class="pointer-events-none absolute inset-0 h-full w-full">
@@ -1886,6 +1893,7 @@
 								</div>
 								{#if imageUrl && activeCorner}
 									<div
+										transition:fade={{ duration: 180 }}
 										class="pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
 									>
 										<div
