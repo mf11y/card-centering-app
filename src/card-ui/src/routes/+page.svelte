@@ -1263,7 +1263,7 @@
 						<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
 							<div class="mb-3 flex items-center justify-between">
 								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
-									Card Controls
+									Card Controls MINI MAP
 								</div>
 							</div>
 
@@ -1529,7 +1529,12 @@
 								<ul class="list-disc space-y-1 pl-5">
 									<li>Upload a card image to begin detection</li>
 									<li>
-										Use the mini card as a control map. Select a corner or side on the mini card to adjust that same part of the card in the preview panels.
+										Use the mini card as a control map. Select a corner or side on the mini card to
+										adjust that same part of the card in the preview panels.
+									</li>
+									<li>
+										Use the source preview to verify alignment. WASD, arrow pads, directional keys,
+										and mouse can be used to adjust.
 									</li>
 									<li>
 										Use the warp preview to verify alignment. WASD, arrow pads, directional keys,
@@ -1783,7 +1788,7 @@
 						<div class="block xl:hidden p-4">
 							<div class="mb-3 flex items-center justify-between">
 								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
-									Card Controls
+									Card Controls MINI MAP
 								</div>
 							</div>
 
@@ -2327,10 +2332,10 @@
 						</div>
 					</div>
 
-						<div class="block xl:hidden p-4">
+					<div class="block xl:hidden p-4">
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
-								Card Controls
+								Card Controls MINI MAP
 							</div>
 						</div>
 
