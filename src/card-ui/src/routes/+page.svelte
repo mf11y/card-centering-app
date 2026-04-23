@@ -99,6 +99,8 @@
 
 	let adjustmentsMode = $state<'corners' | 'guides'>('corners');
 
+	let animateSourceZoom = $state(false);
+
 	function scheduleNudgeWarp() {
 		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
 
@@ -172,7 +174,7 @@
 			zoomLevel = 1;
 			pendingDetection = false;
 			imageReadyForControls = false;
-
+			animateSourceZoom = false;
 			corners = {
 				topLeft: { x: 0, y: 0 },
 				topRight: { x: 0, y: 0 },
@@ -318,6 +320,8 @@
 		pendingDetection = true;
 
 		imageReadyForControls = false;
+
+		animateSourceZoom = false;
 	}
 
 	function handleFileChange(event: Event) {
@@ -578,50 +582,53 @@
 			applyReturnedCorners(result.corners);
 
 			if (zoomLevel === 1) {
-				autoZoomToCorners = true;
+				autoZoomToCorners = false;
 				frozenZoom = null;
+				frozenStage = null;
+				animateSourceZoom = false;
+
+				await tick();
+
+				const naturalWidth = imageEl?.naturalWidth || 1;
+				const naturalHeight = imageEl?.naturalHeight || 1;
+
+				const centerX =
+					(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) /
+					4;
+
+				const centerY =
+					(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) /
+					4;
+
+				const z = computeZoomMetrics({
+					autoZoomToCorners: true,
+					displayedImageRect,
+					naturalWidth,
+					naturalHeight,
+					corners
+				});
+
+				frozenStage = {
+					width: displayedImageRect.width,
+					height: displayedImageRect.height
+				};
+
+				await tick();
+
+				animateSourceZoom = true;
 
 				requestAnimationFrame(() => {
-					const z = computeZoomMetrics({
-						autoZoomToCorners,
-						displayedImageRect,
-						naturalWidth: imageEl?.naturalWidth || 1,
-						naturalHeight: imageEl?.naturalHeight || 1,
-						corners
-					});
-
-					const naturalWidth = imageEl?.naturalWidth || 1;
-					const naturalHeight = imageEl?.naturalHeight || 1;
-
-					const centerX =
-						(corners.topLeft.x +
-							corners.topRight.x +
-							corners.bottomRight.x +
-							corners.bottomLeft.x) /
-						4;
-
-					const centerY =
-						(corners.topLeft.y +
-							corners.topRight.y +
-							corners.bottomRight.y +
-							corners.bottomLeft.y) /
-						4;
-
 					frozenZoom = {
 						scale: z.scale,
 						centerXNorm: centerX / naturalWidth,
 						centerYNorm: centerY / naturalHeight
-					};
-
-					frozenStage = {
-						width: displayedImageRect.width,
-						height: displayedImageRect.height
 					};
 				});
 			} else {
 				autoZoomToCorners = false;
 				frozenZoom = null;
 				frozenStage = null;
+				animateSourceZoom = false;
 			}
 
 			segmentationResult = {
@@ -1729,12 +1736,13 @@
 
 												<!-- fixed image plane -->
 												<div
-													class="absolute overflow-hidden"
+													class={`absolute overflow-hidden ${animateSourceZoom ? 'transition-[transform] duration-700 ease-out' : ''}`}
 													style={`
 															left: ${displayedImageRect.x}px;
 															top: ${displayedImageRect.y}px;
 															width: ${displayedImageRect.width}px;
 															height: ${displayedImageRect.height}px;
+															will-change: transform;
 															${getZoomStyleLocal()}
 														`}
 												>
