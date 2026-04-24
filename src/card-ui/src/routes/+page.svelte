@@ -1527,7 +1527,7 @@
 								</div>
 
 								<ul class="list-disc space-y-1 pl-5">
-									<li>Upload a card image to begin detection</li>
+									<li>Upload a card image to begin detection.</li>
 									<li>
 										Use the mini card as a control map. Select a corner or side on the mini card to
 										adjust that same part of the card in the preview panels.

@@ -12,6 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+
+RUN pip uninstall -y torch torchvision torchaudio
+
+RUN pip install --no-cache-dir --pre \
+    torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/nightly/cu128
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY index.py /app/index.py

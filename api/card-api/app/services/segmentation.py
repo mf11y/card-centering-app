@@ -40,6 +40,8 @@ def get_segmentation_mask(img):
         imgsz=IMGSZ,
         conf=CONF,
         verbose=False,
+        device = 0,
+        half = True
     )
 
     if not results:
