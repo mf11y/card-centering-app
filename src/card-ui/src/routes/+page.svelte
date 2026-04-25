@@ -1418,9 +1418,7 @@
 										class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"
 										type="button"
 										onclick={() => {
-											selectedTarget = null;
-											activeCorner = null;
-											activeGuide = null;
+											selectTarget(null);
 											inputController.stopPadHold();
 										}}
 									>
@@ -1878,9 +1876,7 @@
 									class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"
 									type="button"
 									onclick={() => {
-										selectedTarget = null;
-										activeCorner = null;
-										activeGuide = null;
+										selectTarget(null);
 										inputController.stopPadHold();
 									}}
 								>
@@ -2563,9 +2559,8 @@
 								<button
 									class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"
 									onclick={() => {
-										selectedTarget = null;
-										activeCorner = null;
-										activeGuide = null;
+										selectTarget(null);
+										inputController.stopPadHold();
 									}}>•</button
 								>
 								<button
@@ -2586,7 +2581,7 @@
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										inputController.startPadHold('up');
+										inputController.startPadHold('down');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
