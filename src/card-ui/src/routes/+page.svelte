@@ -104,6 +104,9 @@
 
 	let sourceImageVisible = $state(false);
 
+	let hasAdjustedVerticalGuides = $state(false);
+	let hasAdjustedHorizontalGuides = $state(false);
+
 	type ControlTarget =
 		| { type: 'corner'; key: keyof typeof corners }
 		| { type: 'guide'; key: GuideKey }
@@ -251,6 +254,8 @@
 		stepSize = 1;
 		isDark = true;
 		sourceImageVisible = false;
+		hasAdjustedVerticalGuides = false;
+		hasAdjustedHorizontalGuides = false;
 	}
 
 	let pageZoom = $state(1);
@@ -717,6 +722,8 @@
 	}
 
 	function moveGuide(guideKey: GuideKey, directionDelta: number) {
+		markGuideAdjusted(guideKey);
+
 		const limit =
 			guideKey === 'left' || guideKey === 'right'
 				? Math.max(warpDisplayedImageRect.width, 1)
@@ -778,6 +785,28 @@
 
 	function zoomPageOut() {
 		applyPageZoom(-1);
+	}
+
+	const verticalIsPerfect = $derived(
+		hasAdjustedVerticalGuides &&
+			Math.abs(centeringStats.topPct - 50) < 0.05 &&
+			Math.abs(centeringStats.bottomPct - 50) < 0.05
+	);
+
+	const horizontalIsPerfect = $derived(
+		hasAdjustedHorizontalGuides &&
+			Math.abs(centeringStats.leftPct - 50) < 0.05 &&
+			Math.abs(centeringStats.rightPct - 50) < 0.05
+	);
+
+	function markGuideAdjusted(guideKey: GuideKey) {
+		if (guideKey === 'top' || guideKey === 'bottom') {
+			hasAdjustedVerticalGuides = true;
+		}
+
+		if (guideKey === 'left' || guideKey === 'right') {
+			hasAdjustedHorizontalGuides = true;
+		}
 	}
 
 	function applyZoomDelta(direction: 1 | -1) {
@@ -1059,6 +1088,8 @@
 
 		const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
 		const localY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+
+		markGuideAdjusted(draggingGuide);
 
 		if (draggingGuide === 'top') {
 			guideInsetsPx.top = Math.max(0, Math.min(rect.height, localY));
@@ -1973,13 +2004,23 @@
 									Vertical Centering
 								</div>
 
-								<div class={`rounded-lg border border-zinc-800 bg-zinc-950/60 p-4`}>
+								<div
+									class={`rounded-lg border bg-zinc-950/60 p-4 transition ${
+										verticalIsPerfect
+											? 'border-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.65)]'
+											: 'border-zinc-800'
+									}`}
+								>
 									<div class="relative grid grid-cols-2 gap-x-4 sm:gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Top</div>
 											<div
-												class={`mt-2 text-xl sm:text-2xl font-semibold ${
-													centeringStats.topPct > ALERT_THRESHOLD ? 'text-red-400' : 'text-zinc-100'
+												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
+													verticalIsPerfect
+														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														: centeringStats.topPct > ALERT_THRESHOLD
+															? 'text-red-400'
+															: 'text-zinc-100'
 												}`}
 											>
 												{formatPct(centeringStats.topPct)}
@@ -1989,10 +2030,12 @@
 										<div class="text-right">
 											<div class="text-sm text-zinc-400">Bottom</div>
 											<div
-												class={`mt-2 text-xl sm:text-2xl font-semibold ${
-													centeringStats.bottomPct > ALERT_THRESHOLD
-														? 'text-red-400'
-														: 'text-zinc-100'
+												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
+													verticalIsPerfect
+														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														: centeringStats.topPct > ALERT_THRESHOLD
+															? 'text-red-400'
+															: 'text-zinc-100'
 												}`}
 											>
 												{formatPct(centeringStats.bottomPct)}
@@ -2026,15 +2069,23 @@
 									Horizontal Centering
 								</div>
 
-								<div class="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+								<div
+									class={`rounded-lg border bg-zinc-950/60 p-4 transition ${
+										horizontalIsPerfect
+											? 'border-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.65)]'
+											: 'border-zinc-800'
+									}`}
+								>
 									<div class="relative grid grid-cols-2 gap-x-4 sm:gap-x-8">
 										<div class="text-left">
 											<div class="text-sm text-zinc-400">Left</div>
 											<div
-												class={`mt-2 text-xl sm:text-2xl font-semibold ${
-													centeringStats.leftPct > ALERT_THRESHOLD
-														? 'text-red-400'
-														: 'text-zinc-100'
+												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
+													horizontalIsPerfect
+														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														: centeringStats.leftPct > ALERT_THRESHOLD
+															? 'text-red-400'
+															: 'text-zinc-100'
 												}`}
 											>
 												{formatPct(centeringStats.leftPct)}
@@ -2044,10 +2095,12 @@
 										<div class="text-right">
 											<div class="text-sm text-zinc-400">Right</div>
 											<div
-												class={`mt-2 text-xl sm:text-2xl font-semibold ${
-													centeringStats.rightPct > ALERT_THRESHOLD
-														? 'text-red-400'
-														: 'text-zinc-100'
+												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
+													horizontalIsPerfect
+														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														: centeringStats.leftPct > ALERT_THRESHOLD
+															? 'text-red-400'
+															: 'text-zinc-100'
 												}`}
 											>
 												{formatPct(centeringStats.rightPct)}
