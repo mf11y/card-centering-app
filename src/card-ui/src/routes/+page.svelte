@@ -24,12 +24,15 @@
 		type CornerMap
 	} from '$lib/card-centering/corner-zoom';
 
+	let inputVisualTick = $state(0);
+
 	const inputController = createInputController({
 		onNudge: (direction) => {
 			nudgeSelected(direction);
 		},
-		onStop: () => {
-			scheduleNudgeWarp();
+		onStop: () => {},
+		onStateChange: () => {
+			inputVisualTick += 1;
 		}
 	});
 
@@ -309,6 +312,8 @@
 	 */
 
 	function getPadButtonClass(direction: Direction) {
+		inputVisualTick;
+
 		return `rounded-xl border px-3 py-2 transition select-none ${
 			inputController.isDirectionActive(direction)
 				? 'border-cyan-400 bg-cyan-500/15 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.45)]'
@@ -350,46 +355,55 @@
 	}
 
 	/**
-	 * Selection and movement helpers for the active control target.
-	 * - selectCorner: toggles a source corner selection and makes it the current movement target.
-	 * - selectGuide: toggles a warp guide selection and makes it the current movement target.
-	 * - clearActiveSelection: clears the current corner/guide selection unless a recent drag just ended.
-	 * - nudgeSelected: routes directional input to the currently selected corner or guide.
-	 * - moveCorner: updates one source corner position within image bounds, with optional warp refresh scheduling.
-	 * - moveActiveGuide: applies directional movement to the currently selected warp guide.
+	 * Selection and movement helpers for the current control target.
+	 * - selectTarget: sets, toggles, or clears the active corner/guide selection and keeps
+	 *   selectedTarget, activeCorner, and activeGuide in sync.
+	 * - clearActiveSelection: clears the current selection unless a recent drag just ended
+	 *   and selection clearing is still temporarily suppressed.
+	 * - nudgeSelected: applies directional input to the currently selected corner or guide.
+	 * - moveCorner: updates a source corner position within image bounds and optionally schedules
+	 *   a warp preview refresh.
+	 * - moveActiveGuide: applies directional movement to the currently active warp guide and marks
+	 *   that guide group as manually adjusted.
 	 * - scheduleNudgeWarp: debounces warp preview regeneration after movement changes.
 	 */
 
-	function selectCorner(key: keyof typeof corners) {
-		if (activeCorner === key) {
+	function selectTarget(target: ControlTarget) {
+		if (!target) {
 			selectedTarget = null;
 			activeCorner = null;
 			activeGuide = null;
 			return;
 		}
 
-		selectedTarget = { type: 'corner', key };
-		activeCorner = key;
-		activeGuide = null;
-	}
-	function selectGuide(key: GuideKey) {
-		if (activeGuide === key) {
+		if (target.type === 'corner') {
+			if (activeCorner === target.key) {
+				selectedTarget = null;
+				activeCorner = null;
+				activeGuide = null;
+				return;
+			}
+
+			selectedTarget = target;
+			activeCorner = target.key;
+			activeGuide = null;
+			return;
+		}
+
+		if (activeGuide === target.key) {
 			selectedTarget = null;
 			activeGuide = null;
 			activeCorner = null;
 			return;
 		}
 
-		selectedTarget = { type: 'guide', key };
-		activeGuide = key;
+		selectedTarget = target;
+		activeGuide = target.key;
 		activeCorner = null;
 	}
 	function clearActiveSelection() {
 		if (Date.now() < suppressClearSelectionUntil) return;
-
-		selectedTarget = null;
-		activeGuide = null;
-		activeCorner = null;
+		selectTarget(null);
 	}
 	function nudgeSelected(direction: 'up' | 'down' | 'left' | 'right') {
 		if (!selectedTarget) return;
@@ -404,10 +418,7 @@
 			return;
 		}
 
-		if (selectedTarget.type === 'guide') {
-			activeGuide = selectedTarget.key;
-			moveActiveGuide(direction);
-		}
+		moveGuideByKey(selectedTarget.key, direction);
 	}
 	function moveCorner(cornerKey: keyof typeof corners, dx: number, dy: number, updateWarp = true) {
 		if (!imageEl) return;
@@ -423,16 +434,16 @@
 			scheduleNudgeWarp();
 		}
 	}
-	function moveActiveGuide(direction: Direction) {
-		if (!activeGuide) return;
+	function moveGuideByKey(guideKey: GuideKey, direction: Direction) {
+		markGuideAdjusted(guideKey);
 
-		markGuideAdjusted(activeGuide);
+		const guideStep = Math.max(0.25, stepSize * 0.5);
 
 		guideInsetsPx = applyGuideDirection(
-			activeGuide,
+			guideKey,
 			direction,
 			guideInsetsPx,
-			stepSize,
+			guideStep,
 			warpDisplayedImageRect.width,
 			warpDisplayedImageRect.height
 		);
@@ -485,7 +496,7 @@
 		window.removeEventListener('pointerup', stopDrag);
 
 		if (draggedCorner) {
-			selectCorner(draggedCorner);
+			selectTarget({ type: 'corner', key: draggedCorner });
 		}
 		if (didDragCorner) {
 			suppressClearSelectionUntil = Date.now() + 250;
@@ -529,7 +540,7 @@
 		window.removeEventListener('pointerup', stopGuideDrag);
 
 		if (draggingGuide) {
-			selectGuide(draggingGuide);
+			selectTarget({ type: 'guide', key: draggingGuide });
 		}
 
 		draggingGuide = null;
@@ -539,7 +550,8 @@
 		e.stopPropagation();
 		e.preventDefault();
 
-		selectGuide(guideKey);
+		selectTarget({ type: 'guide', key: guideKey });
+
 		draggingGuide = guideKey;
 
 		window.addEventListener('pointermove', onGuidePointerMove);
@@ -632,68 +644,26 @@
 	}
 
 	/**
-	 * File lifecycle and upload/reset handlers.
-	 * - resetHandler: fully resets the tool back to its initial state, revokes any active blob URLs,
-	 *   clears current image/warp/selection state, restores default guide positions and UI settings,
-	 *   and clears the file input value.
-	 * - loadFile: loads a newly chosen image file, creates a fresh source blob URL, clears any prior
-	 *   derived outputs, resets zoom/display state, and marks segmentation to run after image load.
-	 * - handleFileChange: responds to the hidden file input selection event and forwards the chosen file
-	 *   into the shared load pipeline.
-	 * - handleDrop: accepts an image file dropped onto the upload area and forwards it into the shared
-	 *   load pipeline.
-	 * - handleDragOver: prevents default browser drag-over behavior so the drop zone can accept files.
+	 * File loading, reset, and cleanup helpers.
+	 * - revokeWorkingUrls: revokes any active blob/object URLs used by the current source image,
+	 *   warped preview, or segmentation mask to avoid leaking browser resources.
+	 * - resetDerivedImageState: clears generated image outputs and restores zoom/display-related state
+	 *   that depends on the currently loaded image.
+	 * - resetAdjustmentState: clears the current control selection, restores default corner and guide
+	 *   positions, and resets manual-adjustment tracking flags.
+	 * - clearUploadInput: clears the hidden file input so the same file can be selected again if needed.
+	 * - resetHandler: fully resets the tool to its default state, including file data, derived outputs,
+	 *   adjustment state, pending detection, and UI preferences tied to the active session.
+	 * - loadFile: initializes a newly selected image file, revokes any previous working URLs, creates a
+	 *   fresh source blob URL, resets image-derived state, and marks detection to run after image load.
+	 * - handleFileChange: reads the file selected through the upload input and forwards it into the
+	 *   shared file-loading pipeline.
+	 * - handleDrop: reads the image dropped into the drop zone and forwards it into the shared
+	 *   file-loading pipeline.
+	 * - handleDragOver: prevents default browser drag behavior so the drop zone can accept files.
 	 */
-	function resetHandler() {
-		if (imageUrl) {
-			if (imageUrl) URL.revokeObjectURL(imageUrl);
-			if (warpedImageUrl?.startsWith('blob:')) URL.revokeObjectURL(warpedImageUrl);
-			if (segmentationMaskUrl?.startsWith('blob:')) URL.revokeObjectURL(segmentationMaskUrl);
-
-			imageFile = null;
-			imageUrl = '';
-			warpedImageUrl = '';
-			segmentationMaskUrl = '';
-			activeCorner = null;
-			activeGuide = null;
-			frozenZoom = null;
-			frozenStage = null;
-			autoZoomToCorners = false;
-			zoomLevel = 1;
-			pendingDetection = false;
-			imageReadyForControls = false;
-			animateSourceZoom = false;
-			corners = {
-				topLeft: { x: 0, y: 0 },
-				topRight: { x: 0, y: 0 },
-				bottomLeft: { x: 0, y: 0 },
-				bottomRight: { x: 0, y: 0 }
-			};
-
-			guideInsetsPx = {
-				top: 24,
-				bottom: 24,
-				left: 24,
-				right: 24
-			};
-
-			const input = document.getElementById('image-upload') as HTMLInputElement | null;
-			if (input) input.value = '';
-		}
-		pageZoom = 1;
-		stepSize = 1;
-		isDark = true;
-		sourceImageVisible = false;
-		hasAdjustedVerticalGuides = false;
-		hasAdjustedHorizontalGuides = false;
-	}
-	function loadFile(file: File) {
-		if (!file.type.startsWith('image/')) return;
-
-		imageFile = file;
-
+	function revokeWorkingUrls() {
 		if (imageUrl) URL.revokeObjectURL(imageUrl);
-		imageUrl = URL.createObjectURL(file);
 
 		if (warpedImageUrl?.startsWith('blob:')) {
 			URL.revokeObjectURL(warpedImageUrl);
@@ -702,23 +672,72 @@
 		if (segmentationMaskUrl?.startsWith('blob:')) {
 			URL.revokeObjectURL(segmentationMaskUrl);
 		}
+	}
+
+	function resetDerivedImageState() {
+		warpedImageUrl = '';
 		segmentationMaskUrl = '';
 
-		warpedImageUrl = '';
-
 		frozenZoom = null;
+		frozenStage = null;
 		autoZoomToCorners = false;
 		zoomLevel = 1;
-
-		frozenStage = null;
-
-		pendingDetection = true;
-
 		imageReadyForControls = false;
-
 		animateSourceZoom = false;
-
 		sourceImageVisible = false;
+	}
+
+	function resetAdjustmentState() {
+		selectTarget(null);
+
+		corners = {
+			topLeft: { x: 0, y: 0 },
+			topRight: { x: 0, y: 0 },
+			bottomLeft: { x: 0, y: 0 },
+			bottomRight: { x: 0, y: 0 }
+		};
+
+		guideInsetsPx = {
+			top: 24,
+			bottom: 24,
+			left: 24,
+			right: 24
+		};
+
+		hasAdjustedVerticalGuides = false;
+		hasAdjustedHorizontalGuides = false;
+	}
+
+	function clearUploadInput() {
+		const input = document.getElementById('image-upload') as HTMLInputElement | null;
+		if (input) input.value = '';
+	}
+	function resetHandler() {
+		revokeWorkingUrls();
+
+		imageFile = null;
+		imageUrl = '';
+
+		resetDerivedImageState();
+		resetAdjustmentState();
+
+		pendingDetection = false;
+		pageZoom = 1;
+		stepSize = 1;
+		isDark = true;
+
+		clearUploadInput();
+	}
+	function loadFile(file: File) {
+		if (!file.type.startsWith('image/')) return;
+
+		revokeWorkingUrls();
+
+		imageFile = file;
+		imageUrl = URL.createObjectURL(file);
+
+		resetDerivedImageState();
+		pendingDetection = true;
 	}
 	function handleFileChange(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -740,14 +759,17 @@
 
 	/**
 	 * Core image-processing and preview pipeline.
-	 * - runWarpPreview: builds the current ordered corner quad from local corner state, generates a new
-	 *   warped preview image, and replaces the prior warped blob URL if needed.
-	 * - applyReturnedCorners: maps backend-returned corner IDs into local corner state, updates the
-	 *   source corner positions, and immediately refreshes the warp preview.
-	 * - runSegmentationInBrowser: runs corner inference on the current image, validates the response,
-	 *   updates the segmentation mask and corners, and prepares the source zoom state after detection.
-	 * - handleSourceImageLoad: finalizes source-image readiness after the image paints, updates layout
-	 *   measurements, and triggers pending auto-detection once the image is fully ready for interaction.
+	 * - runWarpPreview: rebuilds the current ordered corner quad from local corner state, generates
+	 *   a fresh warped preview image, and safely replaces any previous warped blob URL.
+	 * - applyReturnedCorners: maps backend corner IDs into local corner state, updates the current
+	 *   source-corner positions, and immediately reruns the warp preview.
+	 * - resetSourceZoomState: clears source-panel zoom/freeze/animation state so a new detection result
+	 *   can establish a clean zoom baseline.
+	 * - runSegmentationInBrowser: runs corner inference for the current image, validates the response,
+	 *   updates the segmentation mask and corner state, resets zoom state, and optionally prepares
+	 *   the detected-card auto-zoom when the source view is at the base zoom level.
+	 * - handleSourceImageLoad: finalizes source-image readiness after the image has rendered, updates
+	 *   layout measurements, reveals the source image, and triggers any pending detection request.
 	 */
 	function runWarpPreview() {
 		if (!imageEl) return;
@@ -799,6 +821,12 @@
 		corners = mapped;
 		runWarpPreview();
 	}
+	function resetSourceZoomState() {
+		autoZoomToCorners = false;
+		frozenZoom = null;
+		frozenStage = null;
+		animateSourceZoom = false;
+	}
 	async function runSegmentationInBrowser() {
 		if (!imageFile || !imageEl) return;
 
@@ -828,12 +856,9 @@
 
 			applyReturnedCorners(result.corners);
 
-			if (zoomLevel === 1) {
-				autoZoomToCorners = false;
-				frozenZoom = null;
-				frozenStage = null;
-				animateSourceZoom = false;
+			resetSourceZoomState();
 
+			if (zoomLevel === 1) {
 				await tick();
 
 				const naturalWidth = imageEl?.naturalWidth || 1;
@@ -871,11 +896,6 @@
 						centerYNorm: centerY / naturalHeight
 					};
 				});
-			} else {
-				autoZoomToCorners = false;
-				frozenZoom = null;
-				frozenStage = null;
-				animateSourceZoom = false;
 			}
 		} catch (error) {
 			console.error(error);
@@ -1207,12 +1227,12 @@
 										aria-label="Select top edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectGuide('top');
+											selectTarget({ type: 'guide', key: 'top' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectGuide('top');
+												selectTarget({ type: 'guide', key: 'top' });
 											}
 										}}
 									/>
@@ -1241,12 +1261,12 @@
 										aria-label="Select right edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectGuide('right');
+											selectTarget({ type: 'guide', key: 'right' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectGuide('right');
+												selectTarget({ type: 'guide', key: 'right' });
 											}
 										}}
 									/>
@@ -1275,12 +1295,12 @@
 										aria-label="Select bottom edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectGuide('bottom');
+											selectTarget({ type: 'guide', key: 'bottom' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectGuide('bottom');
+												selectTarget({ type: 'guide', key: 'bottom' });
 											}
 										}}
 									/>
@@ -1309,12 +1329,12 @@
 										aria-label="Select left edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectGuide('left');
+											selectTarget({ type: 'guide', key: 'left' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectGuide('left');
+												selectTarget({ type: 'guide', key: 'left' });
 											}
 										}}
 									/>
@@ -1328,7 +1348,7 @@
 											? 'fill-cyan-400 stroke-cyan-300'
 											: 'fill-zinc-700 stroke-zinc-500'}
 										stroke-width="2"
-										onclick={() => selectCorner('topLeft')}
+										onclick={() => selectTarget({ type: 'corner', key: 'topLeft' })}
 									/>
 									<circle
 										cx="160"
@@ -1338,7 +1358,7 @@
 											? 'fill-cyan-400 stroke-cyan-300'
 											: 'fill-zinc-700 stroke-zinc-500'}
 										stroke-width="2"
-										onclick={() => selectCorner('topRight')}
+										onclick={() => selectTarget({ type: 'corner', key: 'topRight' })}
 									/>
 									<circle
 										cx="60"
@@ -1348,7 +1368,7 @@
 											? 'fill-cyan-400 stroke-cyan-300'
 											: 'fill-zinc-700 stroke-zinc-500'}
 										stroke-width="2"
-										onclick={() => selectCorner('bottomLeft')}
+										onclick={() => selectTarget({ type: 'corner', key: 'bottomLeft' })}
 									/>
 									<circle
 										cx="160"
@@ -1358,7 +1378,7 @@
 											? 'fill-cyan-400 stroke-cyan-300'
 											: 'fill-zinc-700 stroke-zinc-500'}
 										stroke-width="2"
-										onclick={() => selectCorner('bottomRight')}
+										onclick={() => selectTarget({ type: 'corner', key: 'bottomRight' })}
 									/>
 								</svg>
 								<div class="grid grid-cols-3 gap-2">
@@ -1368,11 +1388,12 @@
 										type="button"
 										onpointerdown={(e) => {
 											e.preventDefault();
+											e.currentTarget.setPointerCapture(e.pointerId);
 											inputController.startPadHold('up');
 										}}
 										onpointerup={inputController.stopPadHold}
-										onpointerleave={inputController.stopPadHold}
 										onpointercancel={inputController.stopPadHold}
+										onlostpointercapture={inputController.stopPadHold}
 									>
 										↑
 									</button>
@@ -1383,11 +1404,12 @@
 										type="button"
 										onpointerdown={(e) => {
 											e.preventDefault();
+											e.currentTarget.setPointerCapture(e.pointerId);
 											inputController.startPadHold('left');
 										}}
 										onpointerup={inputController.stopPadHold}
-										onpointerleave={inputController.stopPadHold}
 										onpointercancel={inputController.stopPadHold}
+										onlostpointercapture={inputController.stopPadHold}
 									>
 										←
 									</button>
@@ -1410,11 +1432,12 @@
 										type="button"
 										onpointerdown={(e) => {
 											e.preventDefault();
+											e.currentTarget.setPointerCapture(e.pointerId);
 											inputController.startPadHold('right');
 										}}
 										onpointerup={inputController.stopPadHold}
-										onpointerleave={inputController.stopPadHold}
 										onpointercancel={inputController.stopPadHold}
+										onlostpointercapture={inputController.stopPadHold}
 									>
 										→
 									</button>
@@ -1425,11 +1448,12 @@
 										type="button"
 										onpointerdown={(e) => {
 											e.preventDefault();
+											e.currentTarget.setPointerCapture(e.pointerId);
 											inputController.startPadHold('down');
 										}}
 										onpointerup={inputController.stopPadHold}
-										onpointerleave={inputController.stopPadHold}
 										onpointercancel={inputController.stopPadHold}
+										onlostpointercapture={inputController.stopPadHold}
 									>
 										↓
 									</button>
@@ -1640,7 +1664,7 @@
 															e.stopPropagation();
 															e.preventDefault();
 
-															selectCorner(corner.key);
+															selectTarget({ type: 'corner', key: corner.key });
 															draggingCorner = corner.key;
 															didDragCorner = false;
 
@@ -1649,7 +1673,7 @@
 														}}
 														onclick={(e) => {
 															e.stopPropagation();
-															selectCorner(corner.key);
+															selectTarget({ type: 'corner', key: corner.key });
 														}}
 														data-source-corner="true"
 														data-corner-key={corner.key}
@@ -1784,7 +1808,7 @@
 										? 'fill-cyan-400 stroke-cyan-300'
 										: 'fill-zinc-700 stroke-zinc-500'}
 									stroke-width="2"
-									onclick={() => selectCorner('topLeft')}
+									onclick={() => selectTarget({ type: 'corner', key: 'topLeft' })}
 								/>
 								<circle
 									cx="160"
@@ -1794,7 +1818,7 @@
 										? 'fill-cyan-400 stroke-cyan-300'
 										: 'fill-zinc-700 stroke-zinc-500'}
 									stroke-width="2"
-									onclick={() => selectCorner('topRight')}
+									onclick={() => selectTarget({ type: 'corner', key: 'topRight' })}
 								/>
 								<circle
 									cx="60"
@@ -1804,7 +1828,7 @@
 										? 'fill-cyan-400 stroke-cyan-300'
 										: 'fill-zinc-700 stroke-zinc-500'}
 									stroke-width="2"
-									onclick={() => selectCorner('bottomLeft')}
+									onclick={() => selectTarget({ type: 'corner', key: 'bottomLeft' })}
 								/>
 								<circle
 									cx="160"
@@ -1814,7 +1838,7 @@
 										? 'fill-cyan-400 stroke-cyan-300'
 										: 'fill-zinc-700 stroke-zinc-500'}
 									stroke-width="2"
-									onclick={() => selectCorner('bottomRight')}
+									onclick={() => selectTarget({ type: 'corner', key: 'bottomRight' })}
 								/>
 							</svg>
 							<div class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
@@ -1824,11 +1848,12 @@
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
 										inputController.startPadHold('up');
 									}}
 									onpointerup={inputController.stopPadHold}
-									onpointerleave={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}
 								>
 									↑
 								</button>
@@ -1839,11 +1864,12 @@
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
 										inputController.startPadHold('left');
 									}}
 									onpointerup={inputController.stopPadHold}
-									onpointerleave={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}
 								>
 									←
 								</button>
@@ -1866,11 +1892,12 @@
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
 										inputController.startPadHold('right');
 									}}
 									onpointerup={inputController.stopPadHold}
-									onpointerleave={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}
 								>
 									→
 								</button>
@@ -1881,11 +1908,12 @@
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
 										inputController.startPadHold('down');
 									}}
 									onpointerup={inputController.stopPadHold}
-									onpointerleave={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}
 								>
 									↓
 								</button>
@@ -2163,10 +2191,10 @@
 												}}
 												onclick={(e) => {
 													e.stopPropagation();
-													selectGuide('top');
+													selectTarget({ type: 'guide', key: 'top' });
 												}}
 												onfocus={() => {
-													selectGuide('top');
+													selectTarget({ type: 'guide', key: 'top' });
 												}}
 											></button>
 
@@ -2182,10 +2210,10 @@
 												}}
 												onclick={(e) => {
 													e.stopPropagation();
-													selectGuide('bottom');
+													selectTarget({ type: 'guide', key: 'bottom' });
 												}}
 												onfocus={() => {
-													selectGuide('bottom');
+													selectTarget({ type: 'guide', key: 'bottom' });
 												}}
 											></button>
 
@@ -2201,10 +2229,10 @@
 												}}
 												onclick={(e) => {
 													e.stopPropagation();
-													selectGuide('left');
+													selectTarget({ type: 'guide', key: 'left' });
 												}}
 												onfocus={() => {
-													selectGuide('left');
+													selectTarget({ type: 'guide', key: 'left' });
 												}}
 											></button>
 
@@ -2220,10 +2248,10 @@
 												}}
 												onclick={(e) => {
 													e.stopPropagation();
-													selectGuide('right');
+													selectTarget({ type: 'guide', key: 'right' });
 												}}
 												onfocus={() => {
-													selectGuide('right');
+													selectTarget({ type: 'guide', key: 'right' });
 												}}
 											></button>
 
@@ -2363,12 +2391,12 @@
 									aria-label="Select top edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectGuide('top');
+										selectTarget({ type: 'guide', key: 'top' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectGuide('top');
+											selectTarget({ type: 'guide', key: 'top' });
 										}
 									}}
 								/>
@@ -2397,12 +2425,12 @@
 									aria-label="Select right edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectGuide('right');
+										selectTarget({ type: 'guide', key: 'right' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectGuide('right');
+											selectTarget({ type: 'guide', key: 'right' });
 										}
 									}}
 								/>
@@ -2431,12 +2459,12 @@
 									aria-label="Select bottom edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectGuide('bottom');
+										selectTarget({ type: 'guide', key: 'bottom' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectGuide('bottom');
+											selectTarget({ type: 'guide', key: 'bottom' });
 										}
 									}}
 								/>
@@ -2465,12 +2493,12 @@
 									aria-label="Select left edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectGuide('left');
+										selectTarget({ type: 'guide', key: 'left' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectGuide('left');
+											selectTarget({ type: 'guide', key: 'left' });
 										}
 									}}
 								/>
@@ -2510,13 +2538,27 @@
 								<div></div>
 								<button
 									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('up')}>↑</button
+									onpointerdown={(e) => {
+										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
+										inputController.startPadHold('up');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}>↑</button
 								>
 								<div></div>
 
 								<button
 									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('left')}>←</button
+									onpointerdown={(e) => {
+										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
+										inputController.startPadHold('left');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}>←</button
 								>
 								<button
 									class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"
@@ -2528,13 +2570,27 @@
 								>
 								<button
 									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('right')}>→</button
+									onpointerdown={(e) => {
+										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
+										inputController.startPadHold('right');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}>→</button
 								>
 
 								<div></div>
 								<button
 									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('down')}>↓</button
+									onpointerdown={(e) => {
+										e.preventDefault();
+										e.currentTarget.setPointerCapture(e.pointerId);
+										inputController.startPadHold('up');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
+									onlostpointercapture={inputController.stopPadHold}>↓</button
 								>
 								<div></div>
 							</div>
