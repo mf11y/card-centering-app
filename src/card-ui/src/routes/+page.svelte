@@ -5,23 +5,31 @@
 	import type { Quad } from '../lib/card-centering/geometry';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import {
-		cornerPads,
-		STEP_VALUES,
 		PAGE_ZOOM_VALUES,
 		ZOOM_VALUES,
 		ALERT_THRESHOLD,
 		cornerOverlayItems
 	} from '../lib/card-centering/constants';
-	import { snapGuideDisplayPx, formatPct } from '../lib/card-centering/format';
+	import { formatPct } from '../lib/card-centering/format';
 	import { inferCorners, getSegmentationMaskUrl } from '../lib/card-centering/api';
 	import { computeZoomMetrics, getZoomStyle } from '../lib/card-centering/view';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
-	import {
-		handleInputKeydown,
-		handleInputKeyup,
-		type Direction
-	} from '../lib/card-centering/input';
+
 	import { fade } from 'svelte/transition';
+	import { createInputController, type Direction } from '../lib/card-centering/controller';
+	import {
+		moveCornerValue,
+		applyGuideDirection
+	} from '$lib/card-centering/movement';
+
+	const inputController = createInputController({
+		onNudge: (direction) => {
+			nudgeSelected(direction);
+		},
+		onStop: () => {
+			scheduleNudgeWarp();
+		}
+	});
 
 	let imageFile = $state<File | null>(null);
 	let imageUrl = $state('');
@@ -40,14 +48,7 @@
 
 	let activeCorner = $state<keyof typeof corners | null>(null);
 
-	let activeDirection = $state<Direction | null>(null);
-
 	let isSegmenting = $state(false);
-	let segmentationResult = $state<any>(null);
-	let segmentationError = $state('');
-
-	let stepSizeFlash = $state(false);
-	let stepSizeFlashTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	let imageEl = $state.raw<HTMLImageElement | null>(null);
 	let displayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
@@ -66,7 +67,6 @@
 	});
 
 	let warpContainerEl = $state.raw<HTMLDivElement | null>(null);
-	let warpImageEl = $state.raw<HTMLImageElement | null>(null);
 
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 
@@ -80,7 +80,6 @@
 
 	let segmentationMaskUrl = $state('');
 
-	let showUploadButton = $state(true);
 	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	let isDark = $state(true);
@@ -98,8 +97,6 @@
 
 	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
 
-	let adjustmentsMode = $state<'corners' | 'guides'>('corners');
-
 	let animateSourceZoom = $state(false);
 
 	let sourceImageVisible = $state(false);
@@ -113,6 +110,14 @@
 		| null;
 
 	let selectedTarget = $state<ControlTarget>(null);
+
+	function getPadButtonClass(direction: Direction) {
+		return `rounded-xl border px-3 py-2 transition select-none ${
+			inputController.isDirectionActive(direction)
+				? 'border-cyan-400 bg-cyan-500/15 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.45)]'
+				: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800 text-zinc-100'
+		}`;
+	}
 
 	function selectCorner(key: keyof typeof corners) {
 		if (activeCorner === key) {
@@ -193,14 +198,12 @@
 				clearTimeout(hideUploadTimeout);
 				hideUploadTimeout = null;
 			}
-			showUploadButton = true;
 			return;
 		}
 
 		if (hideUploadTimeout) clearTimeout(hideUploadTimeout);
 
 		hideUploadTimeout = setTimeout(() => {
-			showUploadButton = false;
 			hideUploadTimeout = null;
 		}, 220);
 
@@ -210,6 +213,28 @@
 				hideUploadTimeout = null;
 			}
 		};
+	});
+
+	$effect(() => {
+		if (!resizeObserver) return;
+
+		resizeObserver.disconnect();
+
+		if (containerEl) {
+			resizeObserver.observe(containerEl);
+		}
+
+		if (warpContainerEl) {
+			resizeObserver.observe(warpContainerEl);
+		}
+	});
+
+	$effect(() => {
+		if (!warpedImageUrl) return;
+
+		setTimeout(() => {
+			updateWarpDisplayedImageRect();
+		}, 0);
 	});
 
 	function resetHandler() {
@@ -222,8 +247,6 @@
 			imageUrl = '';
 			warpedImageUrl = '';
 			segmentationMaskUrl = '';
-			segmentationError = '';
-			segmentationResult = null;
 			activeCorner = null;
 			activeGuide = null;
 			frozenZoom = null;
@@ -368,9 +391,6 @@
 
 		warpedImageUrl = '';
 
-		segmentationError = '';
-		segmentationResult = null;
-
 		frozenZoom = null;
 		autoZoomToCorners = false;
 		zoomLevel = 1;
@@ -412,15 +432,7 @@
 
 		if (!naturalWidth || !naturalHeight) return;
 
-		const current = corners[cornerKey];
-
-		const nextX = Math.max(0, Math.min(naturalWidth, current.x + dx));
-		const nextY = Math.max(0, Math.min(naturalHeight, current.y + dy));
-
-		corners[cornerKey] = {
-			x: nextX,
-			y: nextY
-		};
+		corners = moveCornerValue(corners, cornerKey, dx, dy, naturalWidth, naturalHeight);
 
 		if (updateWarp) {
 			scheduleNudgeWarp();
@@ -466,28 +478,6 @@
 		updateDisplayedImageRect();
 	}
 
-	$effect(() => {
-		if (!resizeObserver) return;
-
-		resizeObserver.disconnect();
-
-		if (containerEl) {
-			resizeObserver.observe(containerEl);
-		}
-
-		if (warpContainerEl) {
-			resizeObserver.observe(warpContainerEl);
-		}
-	});
-
-	$effect(() => {
-		if (!warpedImageUrl) return;
-
-		setTimeout(() => {
-			updateWarpDisplayedImageRect();
-		}, 0);
-	});
-
 	let resizeObserver: ResizeObserver;
 
 	onMount(() => {
@@ -496,98 +486,18 @@
 			updateWarpDisplayedImageRect();
 		});
 
-		window.addEventListener('keydown', handleKeydown);
-		window.addEventListener('keyup', handleKeyup);
+		window.addEventListener('keydown', inputController.handleKeydown);
+		window.addEventListener('keyup', inputController.handleKeyup);
+		window.addEventListener('blur', inputController.clearPressedDirections);
 
 		return () => {
 			resizeObserver?.disconnect();
-			window.removeEventListener('keydown', handleKeydown);
-			window.removeEventListener('keyup', handleKeyup);
+			window.removeEventListener('keydown', inputController.handleKeydown);
+			window.removeEventListener('keyup', inputController.handleKeyup);
+			window.removeEventListener('blur', inputController.clearPressedDirections);
+			inputController.destroy();
 		};
 	});
-
-	function toggleCornerActive(cornerKey: keyof typeof corners) {
-		if (activeCorner === cornerKey) {
-			activeCorner = null;
-		} else {
-			activeCorner = cornerKey;
-			activeGuide = null;
-			if (!frozenZoom && zoomLevel === 1) {
-				const z = computeZoomMetrics({
-					autoZoomToCorners,
-					displayedImageRect,
-					naturalWidth: imageEl?.naturalWidth || 1,
-					naturalHeight: imageEl?.naturalHeight || 1,
-					corners
-				});
-
-				const naturalWidth = imageEl?.naturalWidth || 1;
-				const naturalHeight = imageEl?.naturalHeight || 1;
-
-				const centerX =
-					(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) /
-					4;
-
-				const centerY =
-					(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) /
-					4;
-
-				frozenZoom = {
-					scale: z.scale,
-					centerXNorm: centerX / naturalWidth,
-					centerYNorm: centerY / naturalHeight
-				};
-			}
-		}
-	}
-
-	function moveActiveCorner(dx: number, dy: number) {
-		if (!activeCorner) return;
-		moveCorner(activeCorner, dx, dy);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		handleInputKeydown(event, {
-			getHasActiveCorner: () => activeCorner !== null,
-			getHasActiveGuide: () => activeGuide !== null,
-			getStepSize: () => stepSize,
-
-			clearSelection: () => {
-				selectedTarget = null;
-				activeCorner = null;
-				activeGuide = null;
-			},
-
-			setActiveDirection: (direction) => {
-				activeDirection = direction;
-			},
-
-			moveActiveCorner,
-			moveActiveGuide
-		});
-	}
-
-	function handleKeyup() {
-		handleInputKeyup({
-			setActiveDirection: (direction) => {
-				activeDirection = direction;
-			}
-		});
-
-		scheduleNudgeWarp();
-	}
-
-	function flashStepSize() {
-		stepSizeFlash = true;
-
-		if (stepSizeFlashTimeout) {
-			clearTimeout(stepSizeFlashTimeout);
-		}
-
-		stepSizeFlashTimeout = setTimeout(() => {
-			stepSizeFlash = false;
-		}, 180);
-	}
 
 	function applyReturnedCorners(returnedCorners: Array<{ id: string; x: number; y: number }>) {
 		const mapped: typeof corners = {
@@ -617,8 +527,6 @@
 		if (!imageFile || !imageEl) return;
 
 		isSegmenting = true;
-		segmentationError = '';
-		segmentationResult = null;
 
 		try {
 			const result = await inferCorners(imageFile);
@@ -694,12 +602,7 @@
 				animateSourceZoom = false;
 			}
 
-			segmentationResult = {
-				ok: true,
-				refine_score: result.refine_score ?? null
-			};
 		} catch (error) {
-			segmentationError = error instanceof Error ? error.message : 'API inference error';
 			console.error(error);
 		} finally {
 			isSegmenting = false;
@@ -716,49 +619,19 @@
 		];
 	}
 
-	function toggleGuideActive(guideKey: GuideKey) {
-		activeGuide = guideKey;
-		activeCorner = null;
-	}
-
-	function moveGuide(guideKey: GuideKey, directionDelta: number) {
-		markGuideAdjusted(guideKey);
-
-		const limit =
-			guideKey === 'left' || guideKey === 'right'
-				? Math.max(warpDisplayedImageRect.width, 1)
-				: Math.max(warpDisplayedImageRect.height, 1);
-
-		const next = guideInsetsPx[guideKey] + directionDelta * stepSize;
-
-		guideInsetsPx[guideKey] = Math.max(0, Math.min(limit, next));
-	}
-
-	function moveActiveGuide(direction: 'up' | 'down' | 'left' | 'right') {
+	function moveActiveGuide(direction: Direction) {
 		if (!activeGuide) return;
 
-		if (activeGuide === 'top') {
-			if (direction === 'up') moveGuide('top', -1);
-			if (direction === 'down') moveGuide('top', 1);
-			return;
-		}
+		markGuideAdjusted(activeGuide);
 
-		if (activeGuide === 'bottom') {
-			if (direction === 'down') moveGuide('bottom', -1);
-			if (direction === 'up') moveGuide('bottom', 1);
-			return;
-		}
-
-		if (activeGuide === 'left') {
-			if (direction === 'left') moveGuide('left', -1);
-			if (direction === 'right') moveGuide('left', 1);
-			return;
-		}
-
-		if (activeGuide === 'right') {
-			if (direction === 'right') moveGuide('right', -1);
-			if (direction === 'left') moveGuide('right', 1);
-		}
+		guideInsetsPx = applyGuideDirection(
+			activeGuide,
+			direction,
+			guideInsetsPx,
+			stepSize,
+			warpDisplayedImageRect.width,
+			warpDisplayedImageRect.height
+		);
 	}
 
 	function updateWarpDisplayedImageRect() {
@@ -891,14 +764,6 @@
 		const nextIndex = Math.max(0, Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction));
 
 		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
-	}
-
-	function zoomIn() {
-		applyZoomDelta(1);
-	}
-
-	function zoomOut() {
-		applyZoomDelta(-1);
 	}
 
 	function getZoomStyleLocal() {
@@ -1133,25 +998,6 @@
 		window.addEventListener('pointerup', stopGuideDrag);
 	}
 
-	function activateGuide(guideKey: GuideKey) {
-		activeGuide = guideKey;
-		activeCorner = null;
-	}
-
-	function moveGuideTowardCenter(guideKey: GuideKey) {
-		if (guideKey === 'top') moveGuide('top', 1);
-		else if (guideKey === 'bottom') moveGuide('bottom', 1);
-		else if (guideKey === 'left') moveGuide('left', 1);
-		else if (guideKey === 'right') moveGuide('right', 1);
-	}
-
-	function moveGuideAwayFromCenter(guideKey: GuideKey) {
-		if (guideKey === 'top') moveGuide('top', -1);
-		else if (guideKey === 'bottom') moveGuide('bottom', -1);
-		else if (guideKey === 'left') moveGuide('left', -1);
-		else if (guideKey === 'right') moveGuide('right', -1);
-	}
-
 	async function handleSourceImageLoad() {
 		updateSize();
 
@@ -1250,11 +1096,7 @@
 											stepSize = Number((e.currentTarget as HTMLSelectElement).value);
 											(e.currentTarget as HTMLSelectElement).blur();
 										}}
-										class={`w-full rounded-lg border bg-zinc-950 px-3 py-2 text-sm transition outline-none ${
-											stepSizeFlash
-												? 'border-blue-400 ring-2 ring-blue-400/70'
-												: 'border-zinc-700 focus:border-blue-500'
-										}`}
+										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm transition outline-none focus:border-blue-500"
 									>
 										<option value={0.25}>.25 px</option>
 										<option value={0.5}>.5 px</option>
@@ -1506,37 +1348,78 @@
 										onclick={() => selectCorner('bottomRight')}
 									/>
 								</svg>
-
 								<div class="grid grid-cols-3 gap-2">
 									<div></div>
 									<button
-										class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-										onclick={() => nudgeSelected('up')}>↑</button
+										class={getPadButtonClass('up')}
+										type="button"
+										onpointerdown={(e) => {
+											e.preventDefault();
+											inputController.startPadHold('up');
+										}}
+										onpointerup={inputController.stopPadHold}
+										onpointerleave={inputController.stopPadHold}
+										onpointercancel={inputController.stopPadHold}
 									>
+										↑
+									</button>
 									<div></div>
 
 									<button
-										class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-										onclick={() => nudgeSelected('left')}>←</button
+										class={getPadButtonClass('left')}
+										type="button"
+										onpointerdown={(e) => {
+											e.preventDefault();
+											inputController.startPadHold('left');
+										}}
+										onpointerup={inputController.stopPadHold}
+										onpointerleave={inputController.stopPadHold}
+										onpointercancel={inputController.stopPadHold}
 									>
+										←
+									</button>
+
 									<button
 										class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"
+										type="button"
 										onclick={() => {
 											selectedTarget = null;
 											activeCorner = null;
 											activeGuide = null;
-										}}>•</button
+											inputController.stopPadHold();
+										}}
 									>
+										•
+									</button>
+
 									<button
-										class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-										onclick={() => nudgeSelected('right')}>→</button
+										class={getPadButtonClass('right')}
+										type="button"
+										onpointerdown={(e) => {
+											e.preventDefault();
+											inputController.startPadHold('right');
+										}}
+										onpointerup={inputController.stopPadHold}
+										onpointerleave={inputController.stopPadHold}
+										onpointercancel={inputController.stopPadHold}
 									>
+										→
+									</button>
 
 									<div></div>
 									<button
-										class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-										onclick={() => nudgeSelected('down')}>↓</button
+										class={getPadButtonClass('down')}
+										type="button"
+										onpointerdown={(e) => {
+											e.preventDefault();
+											inputController.startPadHold('down');
+										}}
+										onpointerup={inputController.stopPadHold}
+										onpointerleave={inputController.stopPadHold}
+										onpointercancel={inputController.stopPadHold}
 									>
+										↓
+									</button>
 									<div></div>
 								</div>
 							</div>
@@ -1921,37 +1804,78 @@
 									onclick={() => selectCorner('bottomRight')}
 								/>
 							</svg>
-
 							<div class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('up')}>↑</button
+									class={getPadButtonClass('up')}
+									type="button"
+									onpointerdown={(e) => {
+										e.preventDefault();
+										inputController.startPadHold('up');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointerleave={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
 								>
+									↑
+								</button>
 								<div></div>
 
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('left')}>←</button
+									class={getPadButtonClass('left')}
+									type="button"
+									onpointerdown={(e) => {
+										e.preventDefault();
+										inputController.startPadHold('left');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointerleave={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
 								>
+									←
+								</button>
+
 								<button
 									class="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"
+									type="button"
 									onclick={() => {
 										selectedTarget = null;
 										activeCorner = null;
 										activeGuide = null;
-									}}>•</button
+										inputController.stopPadHold();
+									}}
 								>
+									•
+								</button>
+
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('right')}>→</button
+									class={getPadButtonClass('right')}
+									type="button"
+									onpointerdown={(e) => {
+										e.preventDefault();
+										inputController.startPadHold('right');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointerleave={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
 								>
+									→
+								</button>
 
 								<div></div>
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
-									onclick={() => nudgeSelected('down')}>↓</button
+									class={getPadButtonClass('down')}
+									type="button"
+									onpointerdown={(e) => {
+										e.preventDefault();
+										inputController.startPadHold('down');
+									}}
+									onpointerup={inputController.stopPadHold}
+									onpointerleave={inputController.stopPadHold}
+									onpointercancel={inputController.stopPadHold}
 								>
+									↓
+								</button>
 								<div></div>
 							</div>
 						</div>
@@ -2147,7 +2071,6 @@
 								{#if warpedImageUrl}
 									<div class="absolute inset-0 overflow-hidden">
 										<img
-											bind:this={warpImageEl}
 											src={warpedImageUrl}
 											alt="Warped preview"
 											class="absolute inset-0 h-full w-full object-cover"
