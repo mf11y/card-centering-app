@@ -15,6 +15,8 @@ export function createInputController({
 	let activeDirection: Direction | null = null;
 	let pressedDirections: Direction[] = [];
 
+	let keyboardHoldTimeout: ReturnType<typeof setTimeout> | null = null;
+
 	let padHoldTimeout: ReturnType<typeof setTimeout> | null = null;
 	let padHoldInterval: ReturnType<typeof setInterval> | null = null;
 	let keyboardRepeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -50,21 +52,28 @@ export function createInputController({
 	}
 
 	function stopKeyboardRepeat() {
-		if (keyboardRepeatInterval) {
-			clearInterval(keyboardRepeatInterval);
-			keyboardRepeatInterval = null;
-		}
+	if (keyboardHoldTimeout) {
+		clearTimeout(keyboardHoldTimeout);
+		keyboardHoldTimeout = null;
 	}
 
-	function startKeyboardRepeat() {
-		stopKeyboardRepeat();
-		if (!activeDirection) return;
+	if (keyboardRepeatInterval) {
+		clearInterval(keyboardRepeatInterval);
+		keyboardRepeatInterval = null;
+	}
+}
 
+	function startKeyboardRepeat() {
+	stopKeyboardRepeat();
+	if (!activeDirection) return;
+
+	keyboardHoldTimeout = setTimeout(() => {
 		keyboardRepeatInterval = setInterval(() => {
 			if (!activeDirection) return;
 			onNudge(activeDirection);
 		}, KEYBOARD_REPEAT_MS);
-	}
+	}, PAD_HOLD_DELAY);
+}
 
 	function addPressedDirection(direction: Direction) {
 		const next = [direction, ...pressedDirections.filter((d) => d !== direction)];
@@ -88,12 +97,17 @@ export function createInputController({
 	function startPadHold(direction: Direction) {
 		clearPadTimers();
 		padActiveDirection = direction;
+
+		// first click happens immediately
 		onNudge(direction);
 		notifyStateChange();
 
-		padHoldInterval = setInterval(() => {
-			onNudge(direction);
-		}, PAD_REPEAT_MS);
+		// only begin repeating after a short hold
+		padHoldTimeout = setTimeout(() => {
+			padHoldInterval = setInterval(() => {
+				onNudge(direction);
+			}, PAD_REPEAT_MS);
+		}, PAD_HOLD_DELAY);
 	}
 
 	function stopPadHold() {
@@ -126,18 +140,18 @@ export function createInputController({
 		}
 	}
 
-function clearPressedDirections() {
-	const hadActiveDirection = !!activeDirection || pressedDirections.length > 0;
+	function clearPressedDirections() {
+		const hadActiveDirection = !!activeDirection || pressedDirections.length > 0;
 
-	pressedDirections = [];
-	activeDirection = null;
-	stopKeyboardRepeat();
-	notifyStateChange();
+		pressedDirections = [];
+		activeDirection = null;
+		stopKeyboardRepeat();
+		notifyStateChange();
 
-	if (hadActiveDirection) {
-		onStop();
+		if (hadActiveDirection) {
+			onStop();
+		}
 	}
-}
 
 	function isDirectionActive(direction: Direction) {
 		return padActiveDirection === direction || activeDirection === direction;
