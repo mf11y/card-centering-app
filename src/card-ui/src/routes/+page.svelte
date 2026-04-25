@@ -2033,7 +2033,7 @@
 												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
 													verticalIsPerfect
 														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
-														: centeringStats.topPct > ALERT_THRESHOLD
+														: centeringStats.bottomPct > ALERT_THRESHOLD
 															? 'text-red-400'
 															: 'text-zinc-100'
 												}`}
@@ -2098,7 +2098,7 @@
 												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
 													horizontalIsPerfect
 														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
-														: centeringStats.leftPct > ALERT_THRESHOLD
+														: centeringStats.rightPct > ALERT_THRESHOLD
 															? 'text-red-400'
 															: 'text-zinc-100'
 												}`}
