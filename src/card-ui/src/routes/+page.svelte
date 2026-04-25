@@ -33,9 +33,26 @@
 		}
 	});
 
+	/**
+	 * Timing/config constants used by interaction and zoom-preview helpers.
+	 * - NUDGE_WARP_DELAY: debounce delay before rerendering the warp preview after nudges.
+	 * - CORNER_PATCH_RADIUS: source-image pixel radius sampled around the selected corner.
+	 * - CORNER_ZOOM_SIZE: rendered canvas size for the corner zoom preview.
+	 */
+
 	const NUDGE_WARP_DELAY = 150;
 	const CORNER_PATCH_RADIUS = 150;
 	const CORNER_ZOOM_SIZE = 150;
+
+	/**
+	 * Source image / segmentation state.
+	 * - imageFile: currently loaded image file from upload or drag-drop.
+	 * - imageUrl: blob URL for the source image preview.
+	 * - imageEl: DOM reference to the rendered source <img>.
+	 * - warpedImageUrl: generated preview URL for the perspective-warped image.
+	 * - segmentationMaskUrl: optional mask/debug overlay returned from segmentation.
+	 * - isSegmenting: whether auto-detection / corner inference is currently running.
+	 */
 
 	let imageFile = $state<File | null>(null);
 	let imageUrl = $state('');
@@ -43,6 +60,17 @@
 	let warpedImageUrl = $state('');
 	let segmentationMaskUrl = $state('');
 	let isSegmenting = $state(false);
+
+	/**
+	 * Core adjustment state for corners, guides, and current selection.
+	 * - corners: current source-image corner positions in natural image pixels.
+	 * - activeCorner: currently selected source corner, if any.
+	 * - activeGuide: currently selected warp guide line, if any.
+	 * - ControlTarget: union describing what the arrow pad / keyboard will move.
+	 * - selectedTarget: the currently controlled corner or guide.
+	 * - guideInsetsPx: guide line offsets inside the warp preview, in display pixels.
+	 * - stepSize: nudge amount used by keyboard and directional pad adjustments.
+	 */
 
 	let corners = $state({
 		topLeft: { x: 0, y: 0 },
@@ -65,15 +93,38 @@
 	});
 	let stepSize = $state(1);
 
+	/**
+	 * Layout measurements and DOM element references used for rendering math,
+	 * positioning overlays, and capture/interaction helpers.
+	 * - containerEl: source panel container element.
+	 * - containerSize: current measured size of the source panel container.
+	 * - displayedImageRect: rendered source image box inside the source panel.
+	 * - warpContainerEl: warp preview container element.
+	 * - warpDisplayedImageRect: rendered warp preview bounds.
+	 * - cornerZoomCanvas: canvas used for the magnified active-corner preview.
+	 * - sourceFocusTrapEl: wrapper used to manage keyboard focus among source controls.
+	 * - warpScreenshotEl: element captured when exporting the warp preview snapshot.
+	 */
+
 	let containerEl = $state.raw<HTMLDivElement | null>(null);
 	let containerSize = $state({ width: 1, height: 1 });
 	let displayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 	let warpContainerEl = $state.raw<HTMLDivElement | null>(null);
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
-	let warpBoxSize = $state({ width: 0, height: 0 });
 	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
 	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
+
+	/**
+	 * Zoom and display presentation state.
+	 * - autoZoomToCorners: whether source view should auto-center/zoom around detected corners.
+	 * - frozenZoom: locked zoom transform for the source panel.
+	 * - frozenStage: locked stage dimensions used while transitioning zoom/display state.
+	 * - zoomLevel: current source panel zoom level.
+	 * - pageZoom: overall page-scale zoom for the full tool layout.
+	 * - animateSourceZoom: enables smooth transform transitions for the source image plane.
+	 * - sourceImageVisible: delays image fade-in until layout is ready.
+	 */
 
 	let autoZoomToCorners = $state(false);
 	let frozenZoom = $state<{
@@ -87,10 +138,30 @@
 	let animateSourceZoom = $state(false);
 	let sourceImageVisible = $state(false);
 
+	/**
+	 * Drag/gesture interaction state.
+	 * - draggingCorner: corner currently being dragged on the source image.
+	 * - didDragCorner: whether a real drag occurred before pointer release.
+	 * - suppressClearSelectionUntil: short cooldown to prevent click-up from clearing selection.
+	 * - draggingGuide: guide currently being dragged in the warp preview.
+	 */
+
 	let draggingCorner: keyof typeof corners | null = null;
 	let didDragCorner = $state(false);
 	let suppressClearSelectionUntil = 0;
 	let draggingGuide = $state<GuideKey | null>(null);
+
+	/**
+	 * UI flags, timers, and lifecycle helpers.
+	 * - hideUploadTimeout: timeout used for delayed upload/reset control visibility behavior.
+	 * - isDark: current warp preview theme toggle state.
+	 * - nudgeWarpTimeout: debounce timer for rerunning the warp preview after movement.
+	 * - hasAdjustedVerticalGuides: whether top/bottom guides have been manually touched.
+	 * - hasAdjustedHorizontalGuides: whether left/right guides have been manually touched.
+	 * - pendingDetection: whether segmentation should run once the source image fully loads.
+	 * - imageReadyForControls: whether the source image/layout is ready for interactive controls.
+	 * - resizeObserver: observes source/warp containers so display rects stay in sync with layout.
+	 */
 
 	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
 	let isDark = $state(true);
@@ -100,6 +171,15 @@
 	let pendingDetection = $state(false);
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
+
+	/**
+	 * Derived centering metrics and “perfect alignment” flags used by the UI.
+	 * - centeringStats: computed percentage split for top/bottom and left/right borders.
+	 * - verticalIsPerfect: true when vertical guide percentages are essentially 50/50
+	 *   and the user has already adjusted vertical guides.
+	 * - horizontalIsPerfect: true when horizontal guide percentages are essentially 50/50
+	 *   and the user has already adjusted horizontal guides.
+	 */
 
 	const centeringStats = $derived(getCenteringStats(guideInsetsPx));
 	const verticalIsPerfect = $derived(
@@ -112,6 +192,15 @@
 			Math.abs(centeringStats.leftPct - 50) < 0.05 &&
 			Math.abs(centeringStats.rightPct - 50) < 0.05
 	);
+
+	/**
+	 * Watches control-readiness state and clears any pending delayed-upload timeout
+	 * while the image is still loading or segmentation is running.
+	 *
+	 * Once the UI is ready, it briefly keeps the timeout alive, then clears the
+	 * timer reference after the short delay. The cleanup function ensures no stale
+	 * timeout survives when the dependencies change or the component reruns.
+	 */
 
 	$effect(() => {
 		const shouldShow = !imageReadyForControls || isSegmenting;
@@ -138,6 +227,14 @@
 		};
 	});
 
+	/**
+	 * Reattaches the shared ResizeObserver to the current source and warp container
+	 * elements whenever those element references change.
+	 *
+	 * This keeps layout measurements in sync after remounts, conditional rendering,
+	 * or DOM replacement during state transitions.
+	 */
+
 	$effect(() => {
 		if (!resizeObserver) return;
 
@@ -152,6 +249,13 @@
 		}
 	});
 
+	/**
+	 * When a new warped image URL is produced, waits until the next task so the DOM
+	 * can paint the updated image, then recomputes the warp preview display bounds.
+	 *
+	 * This keeps guide overlays aligned to the visible warped image after rerender.
+	 */
+
 	$effect(() => {
 		if (!warpedImageUrl) return;
 
@@ -159,6 +263,15 @@
 			updateWarpDisplayedImageRect();
 		}, 0);
 	});
+
+	/**
+	 * Reacts to active-corner changes, corner coordinate updates, and source-image
+	 * changes, then redraws the magnified corner preview canvas on the next task.
+	 *
+	 * Explicit property reads are used to make the effect rerun whenever any corner
+	 * position changes, ensuring the zoom patch and connecting guide lines stay in
+	 * sync with manual adjustments.
+	 */
 
 	$effect(() => {
 		activeCorner;
@@ -183,6 +296,17 @@
 			});
 		}, 0);
 	});
+
+	/**
+	 * Small UI/helper utilities used by the page.
+	 * - getPadButtonClass: returns the directional pad button classes based on active input state.
+	 * - imageXToPercent / imageYToPercent: convert natural-image pixel coordinates into percentage
+	 *   positions for SVG overlay placement on the rendered source image.
+	 * - getZoomStyleLocal: builds the current source-image transform style from zoom/view state.
+	 * - markGuideAdjusted: records whether vertical or horizontal warp guides have been manually touched,
+	 *   which is used for perfect-centering highlight logic.
+	 * - getCornersForBackend: converts local corner state into the backend-friendly corner array shape.
+	 */
 
 	function getPadButtonClass(direction: Direction) {
 		return `rounded-xl border px-3 py-2 transition select-none ${
@@ -224,6 +348,17 @@
 			{ id: 'bottom-left', ...corners.bottomLeft }
 		];
 	}
+
+	/**
+	 * Selection and movement helpers for the active control target.
+	 * - selectCorner: toggles a source corner selection and makes it the current movement target.
+	 * - selectGuide: toggles a warp guide selection and makes it the current movement target.
+	 * - clearActiveSelection: clears the current corner/guide selection unless a recent drag just ended.
+	 * - nudgeSelected: routes directional input to the currently selected corner or guide.
+	 * - moveCorner: updates one source corner position within image bounds, with optional warp refresh scheduling.
+	 * - moveActiveGuide: applies directional movement to the currently selected warp guide.
+	 * - scheduleNudgeWarp: debounces warp preview regeneration after movement changes.
+	 */
 
 	function selectCorner(key: keyof typeof corners) {
 		if (activeCorner === key) {
@@ -310,6 +445,20 @@
 			nudgeWarpTimeout = null;
 		}, NUDGE_WARP_DELAY);
 	}
+
+	/**
+	 * Pointer drag handlers for direct mouse/touch adjustment.
+	 * - onPointerMove: updates the currently dragged source corner by converting pointer position
+	 *   from rendered image space into natural-image coordinates.
+	 * - stopDrag: ends a corner drag, removes global listeners, preserves the dragged corner as selected,
+	 *   and triggers a final warp preview refresh.
+	 * - onGuidePointerMove: updates the currently dragged warp guide based on pointer position inside
+	 *   the warp preview bounds.
+	 * - stopGuideDrag: ends a guide drag, removes global listeners, and preserves the dragged guide
+	 *   as the active selection.
+	 * - startGuideDrag: begins dragging a warp guide and attaches the global move/up listeners needed
+	 *   for smooth dragging outside the initial hit area.
+	 */
 
 	function onPointerMove(e: PointerEvent) {
 		if (!draggingCorner || !imageEl) return;
@@ -451,8 +600,6 @@
 		const width = warpContainerEl.clientWidth;
 		const height = warpContainerEl.clientHeight;
 
-		warpBoxSize = { width, height };
-
 		warpDisplayedImageRect = {
 			x: 0,
 			y: 0,
@@ -460,41 +607,14 @@
 			height
 		};
 	}
-	function applyZoomDelta(direction: 1 | -1) {
-		const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
-		const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
-		const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
 
-		zoomLevel = ZOOM_VALUES[nextIndex];
-
-		if (zoomLevel === 1) {
-			frozenStage = null;
-			frozenZoom = null;
-			autoZoomToCorners = false;
-			return;
-		}
-
-		if (!imageEl) return;
-
-		const naturalWidth = imageEl.naturalWidth || 1;
-		const naturalHeight = imageEl.naturalHeight || 1;
-
-		const centerX =
-			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
-
-		const centerY =
-			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
-
-		frozenStage = null;
-
-		frozenZoom = {
-			scale: zoomLevel,
-			centerXNorm: centerX / naturalWidth,
-			centerYNorm: centerY / naturalHeight
-		};
-
-		autoZoomToCorners = false;
-	}
+	/**
+	 * Page-level zoom controls for the overall tool layout.
+	 * - applyPageZoom: steps the current page zoom to the next allowed value in PAGE_ZOOM_VALUES,
+	 *   clamped within the supported range.
+	 * - zoomPageIn: increases the overall page zoom by one preset step.
+	 * - zoomPageOut: decreases the overall page zoom by one preset step.
+	 */
 	function applyPageZoom(direction: 1 | -1) {
 		const currentIndex = PAGE_ZOOM_VALUES.findIndex((v) => Math.abs(v - pageZoom) < 0.001);
 		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
@@ -511,6 +631,19 @@
 		applyPageZoom(-1);
 	}
 
+	/**
+	 * File lifecycle and upload/reset handlers.
+	 * - resetHandler: fully resets the tool back to its initial state, revokes any active blob URLs,
+	 *   clears current image/warp/selection state, restores default guide positions and UI settings,
+	 *   and clears the file input value.
+	 * - loadFile: loads a newly chosen image file, creates a fresh source blob URL, clears any prior
+	 *   derived outputs, resets zoom/display state, and marks segmentation to run after image load.
+	 * - handleFileChange: responds to the hidden file input selection event and forwards the chosen file
+	 *   into the shared load pipeline.
+	 * - handleDrop: accepts an image file dropped onto the upload area and forwards it into the shared
+	 *   load pipeline.
+	 * - handleDragOver: prevents default browser drag-over behavior so the drop zone can accept files.
+	 */
 	function resetHandler() {
 		if (imageUrl) {
 			if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -605,6 +738,17 @@
 		event.preventDefault();
 	}
 
+	/**
+	 * Core image-processing and preview pipeline.
+	 * - runWarpPreview: builds the current ordered corner quad from local corner state, generates a new
+	 *   warped preview image, and replaces the prior warped blob URL if needed.
+	 * - applyReturnedCorners: maps backend-returned corner IDs into local corner state, updates the
+	 *   source corner positions, and immediately refreshes the warp preview.
+	 * - runSegmentationInBrowser: runs corner inference on the current image, validates the response,
+	 *   updates the segmentation mask and corners, and prepares the source zoom state after detection.
+	 * - handleSourceImageLoad: finalizes source-image readiness after the image paints, updates layout
+	 *   measurements, and triggers pending auto-detection once the image is fully ready for interaction.
+	 */
 	function runWarpPreview() {
 		if (!imageEl) return;
 
@@ -759,6 +903,14 @@
 		}
 	}
 
+	/**
+	 * Miscellaneous interaction and export helpers.
+	 * - handleSourceTrapKeydown: customizes Tab navigation within the source corner controls so focus
+	 *   cycles only through the source-corner buttons and keeps the focused corner synced with selection state.
+	 * - captureWarpPanel: captures the warp preview area as a PNG image using html2canvas, downloads it,
+	 *   and revokes the temporary blob URL after export.
+	 */
+
 	function handleSourceTrapKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Tab' || !sourceFocusTrapEl || !imageUrl) return;
 
@@ -829,6 +981,33 @@
 		}
 	}
 
+	/**
+	 * Component lifecycle hooks.
+	 * - onDestroy: performs final cleanup when the page/component is removed by revoking active blob URLs,
+	 *   clearing pending warp-refresh timers, and detaching any global pointer listeners left from an active guide drag.
+	 * - onMount: initializes the shared ResizeObserver and global keyboard listeners once the component is mounted,
+	 *   then returns a cleanup function that disconnects observers, removes listeners, and destroys the input controller.
+	 */
+
+	onMount(() => {
+		resizeObserver = new ResizeObserver(() => {
+			updateSize();
+			updateWarpDisplayedImageRect();
+		});
+
+		window.addEventListener('keydown', inputController.handleKeydown);
+		window.addEventListener('keyup', inputController.handleKeyup);
+		window.addEventListener('blur', inputController.clearPressedDirections);
+
+		return () => {
+			resizeObserver?.disconnect();
+			window.removeEventListener('keydown', inputController.handleKeydown);
+			window.removeEventListener('keyup', inputController.handleKeyup);
+			window.removeEventListener('blur', inputController.clearPressedDirections);
+			inputController.destroy();
+		};
+	});
+
 	onDestroy(() => {
 		if (imageUrl) URL.revokeObjectURL(imageUrl);
 
@@ -849,25 +1028,6 @@
 			window.removeEventListener('pointermove', onGuidePointerMove);
 			window.removeEventListener('pointerup', stopGuideDrag);
 		}
-	});
-
-	onMount(() => {
-		resizeObserver = new ResizeObserver(() => {
-			updateSize();
-			updateWarpDisplayedImageRect();
-		});
-
-		window.addEventListener('keydown', inputController.handleKeydown);
-		window.addEventListener('keyup', inputController.handleKeyup);
-		window.addEventListener('blur', inputController.clearPressedDirections);
-
-		return () => {
-			resizeObserver?.disconnect();
-			window.removeEventListener('keydown', inputController.handleKeydown);
-			window.removeEventListener('keyup', inputController.handleKeyup);
-			window.removeEventListener('blur', inputController.clearPressedDirections);
-			inputController.destroy();
-		};
 	});
 </script>
 
