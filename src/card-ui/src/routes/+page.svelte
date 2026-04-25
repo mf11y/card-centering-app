@@ -17,10 +17,12 @@
 
 	import { fade } from 'svelte/transition';
 	import { createInputController, type Direction } from '../lib/card-centering/controller';
+	import { moveCornerValue, applyGuideDirection } from '$lib/card-centering/movement';
 	import {
-		moveCornerValue,
-		applyGuideDirection
-	} from '$lib/card-centering/movement';
+		drawCornerZoomPatch,
+		type CornerKey,
+		type CornerMap
+	} from '$lib/card-centering/corner-zoom';
 
 	const inputController = createInputController({
 		onNudge: (direction) => {
@@ -31,8 +33,16 @@
 		}
 	});
 
+	const NUDGE_WARP_DELAY = 150;
+	const CORNER_PATCH_RADIUS = 150;
+	const CORNER_ZOOM_SIZE = 150;
+
 	let imageFile = $state<File | null>(null);
 	let imageUrl = $state('');
+	let imageEl = $state.raw<HTMLImageElement | null>(null);
+	let warpedImageUrl = $state('');
+	let segmentationMaskUrl = $state('');
+	let isSegmenting = $state(false);
 
 	let corners = $state({
 		topLeft: { x: 0, y: 0 },
@@ -40,155 +50,68 @@
 		bottomLeft: { x: 0, y: 0 },
 		bottomRight: { x: 0, y: 0 }
 	});
-
-	let stepSize = $state(1);
-
-	let containerEl = $state.raw<HTMLDivElement | null>(null);
-	let containerSize = $state({ width: 1, height: 1 });
-
 	let activeCorner = $state<keyof typeof corners | null>(null);
-
-	let isSegmenting = $state(false);
-
-	let imageEl = $state.raw<HTMLImageElement | null>(null);
-	let displayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
-
-	let autoZoomToCorners = $state(false);
-
-	let warpedImageUrl = $state('');
-
 	let activeGuide = $state<GuideKey | null>(null);
-
+	type ControlTarget =
+		| { type: 'corner'; key: keyof typeof corners }
+		| { type: 'guide'; key: GuideKey }
+		| null;
+	let selectedTarget = $state<ControlTarget>(null);
 	let guideInsetsPx = $state({
 		top: 24,
 		bottom: 24,
 		left: 24,
 		right: 24
 	});
+	let stepSize = $state(1);
 
+	let containerEl = $state.raw<HTMLDivElement | null>(null);
+	let containerSize = $state({ width: 1, height: 1 });
+	let displayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 	let warpContainerEl = $state.raw<HTMLDivElement | null>(null);
-
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
+	let warpBoxSize = $state({ width: 0, height: 0 });
+	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
+	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
+	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
 
+	let autoZoomToCorners = $state(false);
 	let frozenZoom = $state<{
 		scale: number;
 		centerXNorm: number;
 		centerYNorm: number;
 	} | null>(null);
-
-	let warpBoxSize = $state({ width: 0, height: 0 });
-
-	let segmentationMaskUrl = $state('');
-
-	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	let isDark = $state(true);
-
-	let nudgeWarpTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	const NUDGE_WARP_DELAY = 150;
-
-	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
-
-	const CORNER_PATCH_RADIUS = 150; // source pixels around the selected corner
-	const CORNER_ZOOM_SIZE = 150; // displayed canvas size
-
-	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
-
-	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
-
+	let frozenStage = $state<{ width: number; height: number } | null>(null);
+	let zoomLevel = $state(1);
+	let pageZoom = $state(1);
 	let animateSourceZoom = $state(false);
-
 	let sourceImageVisible = $state(false);
 
+	let draggingCorner: keyof typeof corners | null = null;
+	let didDragCorner = $state(false);
+	let suppressClearSelectionUntil = 0;
+	let draggingGuide = $state<GuideKey | null>(null);
+
+	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
+	let isDark = $state(true);
+	let nudgeWarpTimeout: ReturnType<typeof setTimeout> | null = null;
 	let hasAdjustedVerticalGuides = $state(false);
 	let hasAdjustedHorizontalGuides = $state(false);
+	let pendingDetection = $state(false);
+	let imageReadyForControls = $state(false);
+	let resizeObserver: ResizeObserver;
 
-	type ControlTarget =
-		| { type: 'corner'; key: keyof typeof corners }
-		| { type: 'guide'; key: GuideKey }
-		| null;
-
-	let selectedTarget = $state<ControlTarget>(null);
-
-	function getPadButtonClass(direction: Direction) {
-		return `rounded-xl border px-3 py-2 transition select-none ${
-			inputController.isDirectionActive(direction)
-				? 'border-cyan-400 bg-cyan-500/15 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.45)]'
-				: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800 text-zinc-100'
-		}`;
-	}
-
-	function selectCorner(key: keyof typeof corners) {
-		if (activeCorner === key) {
-			selectedTarget = null;
-			activeCorner = null;
-			activeGuide = null;
-			return;
-		}
-
-		selectedTarget = { type: 'corner', key };
-		activeCorner = key;
-		activeGuide = null;
-	}
-
-	function selectGuide(key: GuideKey) {
-		if (activeGuide === key) {
-			selectedTarget = null;
-			activeGuide = null;
-			activeCorner = null;
-			return;
-		}
-
-		selectedTarget = { type: 'guide', key };
-		activeGuide = key;
-		activeCorner = null;
-	}
-
-	function nudgeSelected(direction: 'up' | 'down' | 'left' | 'right') {
-		if (!selectedTarget) return;
-
-		if (selectedTarget.type === 'corner') {
-			const key = selectedTarget.key;
-
-			if (direction === 'up') moveCorner(key, 0, -stepSize);
-			if (direction === 'down') moveCorner(key, 0, stepSize);
-			if (direction === 'left') moveCorner(key, -stepSize, 0);
-			if (direction === 'right') moveCorner(key, stepSize, 0);
-			return;
-		}
-
-		if (selectedTarget.type === 'guide') {
-			activeGuide = selectedTarget.key;
-			moveActiveGuide(direction);
-		}
-	}
-
-	function scheduleNudgeWarp() {
-		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
-
-		nudgeWarpTimeout = setTimeout(() => {
-			runWarpPreview();
-			nudgeWarpTimeout = null;
-		}, NUDGE_WARP_DELAY);
-	}
-
-	$effect(() => {
-		activeCorner;
-		corners.topLeft.x;
-		corners.topLeft.y;
-		corners.topRight.x;
-		corners.topRight.y;
-		corners.bottomRight.x;
-		corners.bottomRight.y;
-		corners.bottomLeft.x;
-		corners.bottomLeft.y;
-		imageUrl;
-
-		setTimeout(() => {
-			drawCornerZoomPatch();
-		}, 0);
-	});
+	const centeringStats = $derived(getCenteringStats(guideInsetsPx));
+	const verticalIsPerfect = $derived(
+		hasAdjustedVerticalGuides &&
+			Math.abs(centeringStats.topPct - 50) < 0.05 &&
+			Math.abs(centeringStats.bottomPct - 50) < 0.05
+	);
+	const horizontalIsPerfect = $derived(
+		hasAdjustedHorizontalGuides &&
+			Math.abs(centeringStats.leftPct - 50) < 0.05 &&
+			Math.abs(centeringStats.rightPct - 50) < 0.05
+	);
 
 	$effect(() => {
 		const shouldShow = !imageReadyForControls || isSegmenting;
@@ -237,6 +160,357 @@
 		}, 0);
 	});
 
+	$effect(() => {
+		activeCorner;
+		corners.topLeft.x;
+		corners.topLeft.y;
+		corners.topRight.x;
+		corners.topRight.y;
+		corners.bottomRight.x;
+		corners.bottomRight.y;
+		corners.bottomLeft.x;
+		corners.bottomLeft.y;
+		imageUrl;
+
+		setTimeout(() => {
+			drawCornerZoomPatch({
+				canvas: cornerZoomCanvas,
+				image: imageEl,
+				activeCorner: activeCorner as CornerKey | null,
+				corners: corners as CornerMap,
+				patchRadius: CORNER_PATCH_RADIUS,
+				outputSize: CORNER_ZOOM_SIZE
+			});
+		}, 0);
+	});
+
+	function getPadButtonClass(direction: Direction) {
+		return `rounded-xl border px-3 py-2 transition select-none ${
+			inputController.isDirectionActive(direction)
+				? 'border-cyan-400 bg-cyan-500/15 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.45)]'
+				: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800 text-zinc-100'
+		}`;
+	}
+	function imageXToPercent(x: number) {
+		return `${(x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`;
+	}
+	function imageYToPercent(y: number) {
+		return `${(y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`;
+	}
+	function getZoomStyleLocal() {
+		return getZoomStyle({
+			frozenZoom,
+			displayedImageRect,
+			autoZoomToCorners,
+			naturalWidth: imageEl?.naturalWidth || 1,
+			naturalHeight: imageEl?.naturalHeight || 1,
+			corners
+		});
+	}
+	function markGuideAdjusted(guideKey: GuideKey) {
+		if (guideKey === 'top' || guideKey === 'bottom') {
+			hasAdjustedVerticalGuides = true;
+		}
+
+		if (guideKey === 'left' || guideKey === 'right') {
+			hasAdjustedHorizontalGuides = true;
+		}
+	}
+	function getCornersForBackend() {
+		return [
+			{ id: 'top-left', ...corners.topLeft },
+			{ id: 'top-right', ...corners.topRight },
+			{ id: 'bottom-right', ...corners.bottomRight },
+			{ id: 'bottom-left', ...corners.bottomLeft }
+		];
+	}
+
+	function selectCorner(key: keyof typeof corners) {
+		if (activeCorner === key) {
+			selectedTarget = null;
+			activeCorner = null;
+			activeGuide = null;
+			return;
+		}
+
+		selectedTarget = { type: 'corner', key };
+		activeCorner = key;
+		activeGuide = null;
+	}
+	function selectGuide(key: GuideKey) {
+		if (activeGuide === key) {
+			selectedTarget = null;
+			activeGuide = null;
+			activeCorner = null;
+			return;
+		}
+
+		selectedTarget = { type: 'guide', key };
+		activeGuide = key;
+		activeCorner = null;
+	}
+	function clearActiveSelection() {
+		if (Date.now() < suppressClearSelectionUntil) return;
+
+		selectedTarget = null;
+		activeGuide = null;
+		activeCorner = null;
+	}
+	function nudgeSelected(direction: 'up' | 'down' | 'left' | 'right') {
+		if (!selectedTarget) return;
+
+		if (selectedTarget.type === 'corner') {
+			const key = selectedTarget.key;
+
+			if (direction === 'up') moveCorner(key, 0, -stepSize);
+			if (direction === 'down') moveCorner(key, 0, stepSize);
+			if (direction === 'left') moveCorner(key, -stepSize, 0);
+			if (direction === 'right') moveCorner(key, stepSize, 0);
+			return;
+		}
+
+		if (selectedTarget.type === 'guide') {
+			activeGuide = selectedTarget.key;
+			moveActiveGuide(direction);
+		}
+	}
+	function moveCorner(cornerKey: keyof typeof corners, dx: number, dy: number, updateWarp = true) {
+		if (!imageEl) return;
+
+		const naturalWidth = imageEl.naturalWidth;
+		const naturalHeight = imageEl.naturalHeight;
+
+		if (!naturalWidth || !naturalHeight) return;
+
+		corners = moveCornerValue(corners, cornerKey, dx, dy, naturalWidth, naturalHeight);
+
+		if (updateWarp) {
+			scheduleNudgeWarp();
+		}
+	}
+	function moveActiveGuide(direction: Direction) {
+		if (!activeGuide) return;
+
+		markGuideAdjusted(activeGuide);
+
+		guideInsetsPx = applyGuideDirection(
+			activeGuide,
+			direction,
+			guideInsetsPx,
+			stepSize,
+			warpDisplayedImageRect.width,
+			warpDisplayedImageRect.height
+		);
+	}
+	function scheduleNudgeWarp() {
+		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
+
+		nudgeWarpTimeout = setTimeout(() => {
+			runWarpPreview();
+			nudgeWarpTimeout = null;
+		}, NUDGE_WARP_DELAY);
+	}
+
+	function onPointerMove(e: PointerEvent) {
+		if (!draggingCorner || !imageEl) return;
+
+		didDragCorner = true;
+
+		const rect = imageEl.getBoundingClientRect();
+
+		const x = ((e.clientX - rect.left) / rect.width) * imageEl.naturalWidth;
+		const y = ((e.clientY - rect.top) / rect.height) * imageEl.naturalHeight;
+
+		const clampedX = Math.max(0, Math.min(imageEl.naturalWidth, x));
+		const clampedY = Math.max(0, Math.min(imageEl.naturalHeight, y));
+
+		const current = corners[draggingCorner];
+
+		moveCorner(draggingCorner, clampedX - current.x, clampedY - current.y, false);
+	}
+	function stopDrag() {
+		const draggedCorner = draggingCorner;
+		draggingCorner = null;
+
+		window.removeEventListener('pointermove', onPointerMove);
+		window.removeEventListener('pointerup', stopDrag);
+
+		if (draggedCorner) {
+			selectCorner(draggedCorner);
+		}
+		if (didDragCorner) {
+			suppressClearSelectionUntil = Date.now() + 250;
+		}
+
+		didDragCorner = false;
+		runWarpPreview();
+	}
+
+	function onGuidePointerMove(e: PointerEvent) {
+		if (!draggingGuide || !warpContainerEl) return;
+
+		const rect = warpContainerEl.getBoundingClientRect();
+
+		const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+		const localY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+
+		markGuideAdjusted(draggingGuide);
+
+		if (draggingGuide === 'top') {
+			guideInsetsPx.top = Math.max(0, Math.min(rect.height, localY));
+			return;
+		}
+
+		if (draggingGuide === 'bottom') {
+			guideInsetsPx.bottom = Math.max(0, Math.min(rect.height, rect.height - localY));
+			return;
+		}
+
+		if (draggingGuide === 'left') {
+			guideInsetsPx.left = Math.max(0, Math.min(rect.width, localX));
+			return;
+		}
+
+		if (draggingGuide === 'right') {
+			guideInsetsPx.right = Math.max(0, Math.min(rect.width, rect.width - localX));
+		}
+	}
+	function stopGuideDrag() {
+		window.removeEventListener('pointermove', onGuidePointerMove);
+		window.removeEventListener('pointerup', stopGuideDrag);
+
+		if (draggingGuide) {
+			selectGuide(draggingGuide);
+		}
+
+		draggingGuide = null;
+	}
+
+	function startGuideDrag(e: PointerEvent, guideKey: GuideKey) {
+		e.stopPropagation();
+		e.preventDefault();
+
+		selectGuide(guideKey);
+		draggingGuide = guideKey;
+
+		window.addEventListener('pointermove', onGuidePointerMove);
+		window.addEventListener('pointerup', stopGuideDrag);
+	}
+
+	function updateSize() {
+		if (!containerEl) return;
+
+		containerSize = {
+			width: containerEl.clientWidth,
+			height: containerEl.clientHeight
+		};
+
+		updateDisplayedImageRect();
+	}
+	function updateDisplayedImageRect() {
+		if (!containerEl || !imageEl) return;
+
+		const containerWidth = containerSize.width;
+		const containerHeight = containerSize.height;
+
+		const naturalWidth = imageEl.naturalWidth;
+		const naturalHeight = imageEl.naturalHeight;
+
+		if (!naturalWidth || !naturalHeight) return;
+
+		const imageAspect = naturalWidth / naturalHeight;
+
+		if (frozenStage) {
+			const width = frozenStage.width;
+			const height = frozenStage.height;
+			const x = (containerWidth - width) / 2;
+			const y = (containerHeight - height) / 2;
+			displayedImageRect = { x, y, width, height };
+			return;
+		}
+
+		const maxStageWidth = Math.min(containerWidth, 720);
+		const maxStageHeight = Math.min(containerHeight, 960);
+
+		let width = maxStageWidth;
+		let height = width / imageAspect;
+
+		if (height > maxStageHeight) {
+			height = maxStageHeight;
+			width = height * imageAspect;
+		}
+
+		const x = (containerWidth - width) / 2;
+		const y = (containerHeight - height) / 2;
+
+		displayedImageRect = { x, y, width, height };
+	}
+	function updateWarpDisplayedImageRect() {
+		if (!warpContainerEl) return;
+
+		const width = warpContainerEl.clientWidth;
+		const height = warpContainerEl.clientHeight;
+
+		warpBoxSize = { width, height };
+
+		warpDisplayedImageRect = {
+			x: 0,
+			y: 0,
+			width,
+			height
+		};
+	}
+	function applyZoomDelta(direction: 1 | -1) {
+		const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
+		const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
+		const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
+
+		zoomLevel = ZOOM_VALUES[nextIndex];
+
+		if (zoomLevel === 1) {
+			frozenStage = null;
+			frozenZoom = null;
+			autoZoomToCorners = false;
+			return;
+		}
+
+		if (!imageEl) return;
+
+		const naturalWidth = imageEl.naturalWidth || 1;
+		const naturalHeight = imageEl.naturalHeight || 1;
+
+		const centerX =
+			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
+
+		const centerY =
+			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
+
+		frozenStage = null;
+
+		frozenZoom = {
+			scale: zoomLevel,
+			centerXNorm: centerX / naturalWidth,
+			centerYNorm: centerY / naturalHeight
+		};
+
+		autoZoomToCorners = false;
+	}
+	function applyPageZoom(direction: 1 | -1) {
+		const currentIndex = PAGE_ZOOM_VALUES.findIndex((v) => Math.abs(v - pageZoom) < 0.001);
+		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
+
+		const nextIndex = Math.max(0, Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction));
+
+		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
+	}
+	function zoomPageIn() {
+		applyPageZoom(1);
+	}
+
+	function zoomPageOut() {
+		applyPageZoom(-1);
+	}
+
 	function resetHandler() {
 		if (imageUrl) {
 			if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -280,98 +554,6 @@
 		hasAdjustedVerticalGuides = false;
 		hasAdjustedHorizontalGuides = false;
 	}
-
-	let pageZoom = $state(1);
-
-	let pendingDetection = $state(false);
-
-	let frozenStage = $state<{ width: number; height: number } | null>(null);
-
-	let zoomLevel = $state(1);
-
-	let imageReadyForControls = $state(false);
-
-	let draggingCorner: keyof typeof corners | null = null;
-
-	let didDragCorner = $state(false);
-	let suppressClearSelectionUntil = 0;
-
-	let draggingGuide = $state<GuideKey | null>(null);
-
-	function onPointerMove(e: PointerEvent) {
-		if (!draggingCorner || !imageEl) return;
-
-		didDragCorner = true;
-
-		const rect = imageEl.getBoundingClientRect();
-
-		const x = ((e.clientX - rect.left) / rect.width) * imageEl.naturalWidth;
-		const y = ((e.clientY - rect.top) / rect.height) * imageEl.naturalHeight;
-
-		const clampedX = Math.max(0, Math.min(imageEl.naturalWidth, x));
-		const clampedY = Math.max(0, Math.min(imageEl.naturalHeight, y));
-
-		const current = corners[draggingCorner];
-
-		moveCorner(draggingCorner, clampedX - current.x, clampedY - current.y, false);
-	}
-
-	function stopDrag() {
-		const draggedCorner = draggingCorner;
-		draggingCorner = null;
-
-		window.removeEventListener('pointermove', onPointerMove);
-		window.removeEventListener('pointerup', stopDrag);
-
-		if (draggedCorner) {
-			selectCorner(draggedCorner);
-		}
-		if (didDragCorner) {
-			suppressClearSelectionUntil = Date.now() + 250;
-		}
-
-		didDragCorner = false;
-		runWarpPreview();
-	}
-
-	function clearActiveSelection() {
-		if (Date.now() < suppressClearSelectionUntil) return;
-
-		selectedTarget = null;
-		activeGuide = null;
-		activeCorner = null;
-	}
-
-	function imageXToPercent(x: number) {
-		return `${(x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`;
-	}
-
-	function imageYToPercent(y: number) {
-		return `${(y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`;
-	}
-
-	onDestroy(() => {
-		if (imageUrl) URL.revokeObjectURL(imageUrl);
-
-		if (warpedImageUrl?.startsWith('blob:')) {
-			URL.revokeObjectURL(warpedImageUrl);
-		}
-
-		if (segmentationMaskUrl?.startsWith('blob:')) {
-			URL.revokeObjectURL(segmentationMaskUrl);
-		}
-
-		if (nudgeWarpTimeout) {
-			clearTimeout(nudgeWarpTimeout);
-		}
-
-		// ✅ only clean up if actively dragging
-		if (draggingGuide) {
-			window.removeEventListener('pointermove', onGuidePointerMove);
-			window.removeEventListener('pointerup', stopGuideDrag);
-		}
-	});
-
 	function loadFile(file: File) {
 		if (!file.type.startsWith('image/')) return;
 
@@ -405,7 +587,6 @@
 
 		sourceImageVisible = false;
 	}
-
 	function handleFileChange(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
@@ -422,21 +603,6 @@
 
 	function handleDragOver(event: DragEvent) {
 		event.preventDefault();
-	}
-
-	function moveCorner(cornerKey: keyof typeof corners, dx: number, dy: number, updateWarp = true) {
-		if (!imageEl) return;
-
-		const naturalWidth = imageEl.naturalWidth;
-		const naturalHeight = imageEl.naturalHeight;
-
-		if (!naturalWidth || !naturalHeight) return;
-
-		corners = moveCornerValue(corners, cornerKey, dx, dy, naturalWidth, naturalHeight);
-
-		if (updateWarp) {
-			scheduleNudgeWarp();
-		}
 	}
 
 	function runWarpPreview() {
@@ -466,39 +632,6 @@
 			console.error('Frontend warp failed:', error);
 		}
 	}
-
-	function updateSize() {
-		if (!containerEl) return;
-
-		containerSize = {
-			width: containerEl.clientWidth,
-			height: containerEl.clientHeight
-		};
-
-		updateDisplayedImageRect();
-	}
-
-	let resizeObserver: ResizeObserver;
-
-	onMount(() => {
-		resizeObserver = new ResizeObserver(() => {
-			updateSize();
-			updateWarpDisplayedImageRect();
-		});
-
-		window.addEventListener('keydown', inputController.handleKeydown);
-		window.addEventListener('keyup', inputController.handleKeyup);
-		window.addEventListener('blur', inputController.clearPressedDirections);
-
-		return () => {
-			resizeObserver?.disconnect();
-			window.removeEventListener('keydown', inputController.handleKeydown);
-			window.removeEventListener('keyup', inputController.handleKeyup);
-			window.removeEventListener('blur', inputController.clearPressedDirections);
-			inputController.destroy();
-		};
-	});
-
 	function applyReturnedCorners(returnedCorners: Array<{ id: string; x: number; y: number }>) {
 		const mapped: typeof corners = {
 			topLeft: { x: corners.topLeft.x, y: corners.topLeft.y },
@@ -522,7 +655,6 @@
 		corners = mapped;
 		runWarpPreview();
 	}
-
 	async function runSegmentationInBrowser() {
 		if (!imageFile || !imageEl) return;
 
@@ -601,7 +733,6 @@
 				frozenStage = null;
 				animateSourceZoom = false;
 			}
-
 		} catch (error) {
 			console.error(error);
 		} finally {
@@ -609,271 +740,23 @@
 			imageReadyForControls = true;
 		}
 	}
+	async function handleSourceImageLoad() {
+		updateSize();
 
-	function getCornersForBackend() {
-		return [
-			{ id: 'top-left', ...corners.topLeft },
-			{ id: 'top-right', ...corners.topRight },
-			{ id: 'bottom-right', ...corners.bottomRight },
-			{ id: 'bottom-left', ...corners.bottomLeft }
-		];
-	}
+		// let the image become visible first
+		sourceImageVisible = true;
 
-	function moveActiveGuide(direction: Direction) {
-		if (!activeGuide) return;
+		// give the browser a couple frames to paint the fade cleanly
+		await tick();
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		await new Promise((resolve) => requestAnimationFrame(resolve));
 
-		markGuideAdjusted(activeGuide);
+		imageReadyForControls = true;
 
-		guideInsetsPx = applyGuideDirection(
-			activeGuide,
-			direction,
-			guideInsetsPx,
-			stepSize,
-			warpDisplayedImageRect.width,
-			warpDisplayedImageRect.height
-		);
-	}
-
-	function updateWarpDisplayedImageRect() {
-		if (!warpContainerEl) return;
-
-		const width = warpContainerEl.clientWidth;
-		const height = warpContainerEl.clientHeight;
-
-		warpBoxSize = { width, height };
-
-		warpDisplayedImageRect = {
-			x: 0,
-			y: 0,
-			width,
-			height
-		};
-	}
-
-	const centeringStats = $derived(getCenteringStats(guideInsetsPx));
-
-	function zoomPageIn() {
-		applyPageZoom(1);
-	}
-
-	function zoomPageOut() {
-		applyPageZoom(-1);
-	}
-
-	const verticalIsPerfect = $derived(
-		hasAdjustedVerticalGuides &&
-			Math.abs(centeringStats.topPct - 50) < 0.05 &&
-			Math.abs(centeringStats.bottomPct - 50) < 0.05
-	);
-
-	const horizontalIsPerfect = $derived(
-		hasAdjustedHorizontalGuides &&
-			Math.abs(centeringStats.leftPct - 50) < 0.05 &&
-			Math.abs(centeringStats.rightPct - 50) < 0.05
-	);
-
-	function markGuideAdjusted(guideKey: GuideKey) {
-		if (guideKey === 'top' || guideKey === 'bottom') {
-			hasAdjustedVerticalGuides = true;
+		if (pendingDetection) {
+			pendingDetection = false;
+			runSegmentationInBrowser();
 		}
-
-		if (guideKey === 'left' || guideKey === 'right') {
-			hasAdjustedHorizontalGuides = true;
-		}
-	}
-
-	function applyZoomDelta(direction: 1 | -1) {
-		const currentIndex = ZOOM_VALUES.findIndex((v) => Math.abs(v - zoomLevel) < 0.001);
-		const safeIndex = currentIndex === -1 ? ZOOM_VALUES.indexOf(1) : currentIndex;
-		const nextIndex = Math.max(0, Math.min(ZOOM_VALUES.length - 1, safeIndex + direction));
-
-		zoomLevel = ZOOM_VALUES[nextIndex];
-
-		if (zoomLevel === 1) {
-			frozenStage = null;
-			frozenZoom = null;
-			autoZoomToCorners = false;
-			return;
-		}
-
-		if (!imageEl) return;
-
-		const naturalWidth = imageEl.naturalWidth || 1;
-		const naturalHeight = imageEl.naturalHeight || 1;
-
-		const centerX =
-			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
-
-		const centerY =
-			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
-
-		frozenStage = null;
-
-		frozenZoom = {
-			scale: zoomLevel,
-			centerXNorm: centerX / naturalWidth,
-			centerYNorm: centerY / naturalHeight
-		};
-
-		autoZoomToCorners = false;
-	}
-
-	function updateDisplayedImageRect() {
-		if (!containerEl || !imageEl) return;
-
-		const containerWidth = containerSize.width;
-		const containerHeight = containerSize.height;
-
-		const naturalWidth = imageEl.naturalWidth;
-		const naturalHeight = imageEl.naturalHeight;
-
-		if (!naturalWidth || !naturalHeight) return;
-
-		const imageAspect = naturalWidth / naturalHeight;
-
-		if (frozenStage) {
-			const width = frozenStage.width;
-			const height = frozenStage.height;
-			const x = (containerWidth - width) / 2;
-			const y = (containerHeight - height) / 2;
-			displayedImageRect = { x, y, width, height };
-			return;
-		}
-
-		const maxStageWidth = Math.min(containerWidth, 720);
-		const maxStageHeight = Math.min(containerHeight, 960);
-
-		let width = maxStageWidth;
-		let height = width / imageAspect;
-
-		if (height > maxStageHeight) {
-			height = maxStageHeight;
-			width = height * imageAspect;
-		}
-
-		const x = (containerWidth - width) / 2;
-		const y = (containerHeight - height) / 2;
-
-		displayedImageRect = { x, y, width, height };
-	}
-
-	function applyPageZoom(direction: 1 | -1) {
-		const currentIndex = PAGE_ZOOM_VALUES.findIndex((v) => Math.abs(v - pageZoom) < 0.001);
-		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
-
-		const nextIndex = Math.max(0, Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction));
-
-		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
-	}
-
-	function getZoomStyleLocal() {
-		return getZoomStyle({
-			frozenZoom,
-			displayedImageRect,
-			autoZoomToCorners,
-			naturalWidth: imageEl?.naturalWidth || 1,
-			naturalHeight: imageEl?.naturalHeight || 1,
-			corners
-		});
-	}
-
-	function getCornerPoint(cornerKey: keyof typeof corners) {
-		return corners[cornerKey];
-	}
-
-	function getPrevCornerKey(cornerKey: keyof typeof corners): keyof typeof corners {
-		if (cornerKey === 'topLeft') return 'bottomLeft';
-		if (cornerKey === 'topRight') return 'topLeft';
-		if (cornerKey === 'bottomRight') return 'topRight';
-		return 'bottomRight';
-	}
-
-	function getNextCornerKey(cornerKey: keyof typeof corners): keyof typeof corners {
-		if (cornerKey === 'topLeft') return 'topRight';
-		if (cornerKey === 'topRight') return 'bottomRight';
-		if (cornerKey === 'bottomRight') return 'bottomLeft';
-		return 'topLeft';
-	}
-
-	function drawCornerZoomPatch() {
-		if (!cornerZoomCanvas || !imageEl || !activeCorner) return;
-
-		const ctx = cornerZoomCanvas.getContext('2d');
-		if (!ctx) return;
-
-		const naturalWidth = imageEl.naturalWidth;
-		const naturalHeight = imageEl.naturalHeight;
-
-		if (!naturalWidth || !naturalHeight) return;
-
-		const cornerPt = getCornerPoint(activeCorner);
-
-		const sx = Math.round(cornerPt.x - CORNER_PATCH_RADIUS);
-		const sy = Math.round(cornerPt.y - CORNER_PATCH_RADIUS);
-		const sw = CORNER_PATCH_RADIUS * 2;
-		const sh = CORNER_PATCH_RADIUS * 2;
-
-		ctx.clearRect(0, 0, CORNER_ZOOM_SIZE, CORNER_ZOOM_SIZE);
-		ctx.imageSmoothingEnabled = false;
-
-		// black background for out-of-bounds areas near image edge
-		ctx.fillStyle = '#09090b';
-		ctx.fillRect(0, 0, CORNER_ZOOM_SIZE, CORNER_ZOOM_SIZE);
-
-		// draw cropped patch from source image
-		ctx.drawImage(imageEl, sx, sy, sw, sh, 0, 0, CORNER_ZOOM_SIZE, CORNER_ZOOM_SIZE);
-
-		// overlay line segments connected to this corner
-		const prevKey = getPrevCornerKey(activeCorner);
-		const nextKey = getNextCornerKey(activeCorner);
-
-		const prevPt = corners[prevKey];
-		const nextPt = corners[nextKey];
-
-		const scale = CORNER_ZOOM_SIZE / (CORNER_PATCH_RADIUS * 2);
-
-		function toPatchX(x: number) {
-			return (x - sx) * scale;
-		}
-
-		function toPatchY(y: number) {
-			return (y - sy) * scale;
-		}
-
-		const cx = toPatchX(cornerPt.x);
-		const cy = toPatchY(cornerPt.y);
-
-		ctx.strokeStyle = '#22d3ee';
-		ctx.lineWidth = 2;
-		ctx.setLineDash([10, 8]);
-		ctx.lineCap = 'round';
-
-		ctx.beginPath();
-		ctx.moveTo(cx, cy);
-		ctx.lineTo(toPatchX(prevPt.x), toPatchY(prevPt.y));
-		ctx.stroke();
-
-		ctx.beginPath();
-		ctx.moveTo(cx, cy);
-		ctx.lineTo(toPatchX(nextPt.x), toPatchY(nextPt.y));
-		ctx.stroke();
-
-		// highlight active corner
-		ctx.setLineDash([]);
-		ctx.fillStyle = '#f87171';
-		ctx.beginPath();
-		ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-		ctx.fill();
-
-		// crosshair
-		ctx.strokeStyle = '#f87171';
-		ctx.lineWidth = 1.5;
-		ctx.beginPath();
-		ctx.moveTo(cx - 16, cy);
-		ctx.lineTo(cx + 16, cy);
-		ctx.moveTo(cx, cy - 16);
-		ctx.lineTo(cx, cy + 16);
-		ctx.stroke();
 	}
 
 	function handleSourceTrapKeydown(event: KeyboardEvent) {
@@ -946,76 +829,46 @@
 		}
 	}
 
-	function onGuidePointerMove(e: PointerEvent) {
-		if (!draggingGuide || !warpContainerEl) return;
+	onDestroy(() => {
+		if (imageUrl) URL.revokeObjectURL(imageUrl);
 
-		const rect = warpContainerEl.getBoundingClientRect();
-
-		const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-		const localY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-
-		markGuideAdjusted(draggingGuide);
-
-		if (draggingGuide === 'top') {
-			guideInsetsPx.top = Math.max(0, Math.min(rect.height, localY));
-			return;
+		if (warpedImageUrl?.startsWith('blob:')) {
+			URL.revokeObjectURL(warpedImageUrl);
 		}
 
-		if (draggingGuide === 'bottom') {
-			guideInsetsPx.bottom = Math.max(0, Math.min(rect.height, rect.height - localY));
-			return;
+		if (segmentationMaskUrl?.startsWith('blob:')) {
+			URL.revokeObjectURL(segmentationMaskUrl);
 		}
 
-		if (draggingGuide === 'left') {
-			guideInsetsPx.left = Math.max(0, Math.min(rect.width, localX));
-			return;
+		if (nudgeWarpTimeout) {
+			clearTimeout(nudgeWarpTimeout);
 		}
 
-		if (draggingGuide === 'right') {
-			guideInsetsPx.right = Math.max(0, Math.min(rect.width, rect.width - localX));
-		}
-	}
-
-	function stopGuideDrag() {
-		window.removeEventListener('pointermove', onGuidePointerMove);
-		window.removeEventListener('pointerup', stopGuideDrag);
-
+		// ✅ only clean up if actively dragging
 		if (draggingGuide) {
-			selectGuide(draggingGuide);
+			window.removeEventListener('pointermove', onGuidePointerMove);
+			window.removeEventListener('pointerup', stopGuideDrag);
 		}
+	});
 
-		draggingGuide = null;
-	}
+	onMount(() => {
+		resizeObserver = new ResizeObserver(() => {
+			updateSize();
+			updateWarpDisplayedImageRect();
+		});
 
-	function startGuideDrag(e: PointerEvent, guideKey: GuideKey) {
-		e.stopPropagation();
-		e.preventDefault();
+		window.addEventListener('keydown', inputController.handleKeydown);
+		window.addEventListener('keyup', inputController.handleKeyup);
+		window.addEventListener('blur', inputController.clearPressedDirections);
 
-		selectGuide(guideKey);
-		draggingGuide = guideKey;
-
-		window.addEventListener('pointermove', onGuidePointerMove);
-		window.addEventListener('pointerup', stopGuideDrag);
-	}
-
-	async function handleSourceImageLoad() {
-		updateSize();
-
-		// let the image become visible first
-		sourceImageVisible = true;
-
-		// give the browser a couple frames to paint the fade cleanly
-		await tick();
-		await new Promise((resolve) => requestAnimationFrame(resolve));
-		await new Promise((resolve) => requestAnimationFrame(resolve));
-
-		imageReadyForControls = true;
-
-		if (pendingDetection) {
-			pendingDetection = false;
-			runSegmentationInBrowser();
-		}
-	}
+		return () => {
+			resizeObserver?.disconnect();
+			window.removeEventListener('keydown', inputController.handleKeydown);
+			window.removeEventListener('keyup', inputController.handleKeyup);
+			window.removeEventListener('blur', inputController.clearPressedDirections);
+			inputController.destroy();
+		};
+	});
 </script>
 
 <div
