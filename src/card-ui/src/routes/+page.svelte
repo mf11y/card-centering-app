@@ -71,7 +71,7 @@
 	 * - activeGuide: currently selected warp guide line, if any.
 	 * - ControlTarget: union describing what the arrow pad / keyboard will move.
 	 * - selectedTarget: the currently controlled corner or guide.
-	 * - guideInsetsPx: guide line offsets inside the warp preview, in display pixels.
+	 * - guideInsetsPct: guide line offsets inside the warp preview, in display pixels.
 	 * - stepSize: nudge amount used by keyboard and directional pad adjustments.
 	 */
 
@@ -88,13 +88,13 @@
 		| { type: 'guide'; key: GuideKey }
 		| null;
 	let selectedTarget = $state<ControlTarget>(null);
-	let guideInsetsPx = $state({
-		top: 24,
-		bottom: 24,
-		left: 24,
-		right: 24
+	let guideInsetsPct = $state({
+		top: 5,
+		bottom: 5,
+		left: 5,
+		right: 5
 	});
-	let stepSize = $state(1);
+	let stepSize = $state(.1);
 
 	/**
 	 * Layout measurements and DOM element references used for rendering math,
@@ -174,131 +174,6 @@
 	let pendingDetection = $state(false);
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
-
-	/**
-	 * Derived centering metrics and “perfect alignment” flags used by the UI.
-	 * - centeringStats: computed percentage split for top/bottom and left/right borders.
-	 * - verticalIsPerfect: true when vertical guide percentages are essentially 50/50
-	 *   and the user has already adjusted vertical guides.
-	 * - horizontalIsPerfect: true when horizontal guide percentages are essentially 50/50
-	 *   and the user has already adjusted horizontal guides.
-	 */
-
-	const centeringStats = $derived(getCenteringStats(guideInsetsPx));
-	const verticalIsPerfect = $derived(
-		hasAdjustedVerticalGuides &&
-			Math.abs(centeringStats.topPct - 50) < 0.05 &&
-			Math.abs(centeringStats.bottomPct - 50) < 0.05
-	);
-	const horizontalIsPerfect = $derived(
-		hasAdjustedHorizontalGuides &&
-			Math.abs(centeringStats.leftPct - 50) < 0.05 &&
-			Math.abs(centeringStats.rightPct - 50) < 0.05
-	);
-
-	/**
-	 * Watches control-readiness state and clears any pending delayed-upload timeout
-	 * while the image is still loading or segmentation is running.
-	 *
-	 * Once the UI is ready, it briefly keeps the timeout alive, then clears the
-	 * timer reference after the short delay. The cleanup function ensures no stale
-	 * timeout survives when the dependencies change or the component reruns.
-	 */
-
-	$effect(() => {
-		const shouldShow = !imageReadyForControls || isSegmenting;
-
-		if (shouldShow) {
-			if (hideUploadTimeout) {
-				clearTimeout(hideUploadTimeout);
-				hideUploadTimeout = null;
-			}
-			return;
-		}
-
-		if (hideUploadTimeout) clearTimeout(hideUploadTimeout);
-
-		hideUploadTimeout = setTimeout(() => {
-			hideUploadTimeout = null;
-		}, 220);
-
-		return () => {
-			if (hideUploadTimeout) {
-				clearTimeout(hideUploadTimeout);
-				hideUploadTimeout = null;
-			}
-		};
-	});
-
-	/**
-	 * Reattaches the shared ResizeObserver to the current source and warp container
-	 * elements whenever those element references change.
-	 *
-	 * This keeps layout measurements in sync after remounts, conditional rendering,
-	 * or DOM replacement during state transitions.
-	 */
-
-	$effect(() => {
-		if (!resizeObserver) return;
-
-		resizeObserver.disconnect();
-
-		if (containerEl) {
-			resizeObserver.observe(containerEl);
-		}
-
-		if (warpContainerEl) {
-			resizeObserver.observe(warpContainerEl);
-		}
-	});
-
-	/**
-	 * When a new warped image URL is produced, waits until the next task so the DOM
-	 * can paint the updated image, then recomputes the warp preview display bounds.
-	 *
-	 * This keeps guide overlays aligned to the visible warped image after rerender.
-	 */
-
-	$effect(() => {
-		if (!warpedImageUrl) return;
-
-		setTimeout(() => {
-			updateWarpDisplayedImageRect();
-		}, 0);
-	});
-
-	/**
-	 * Reacts to active-corner changes, corner coordinate updates, and source-image
-	 * changes, then redraws the magnified corner preview canvas on the next task.
-	 *
-	 * Explicit property reads are used to make the effect rerun whenever any corner
-	 * position changes, ensuring the zoom patch and connecting guide lines stay in
-	 * sync with manual adjustments.
-	 */
-
-	$effect(() => {
-		activeCorner;
-		corners.topLeft.x;
-		corners.topLeft.y;
-		corners.topRight.x;
-		corners.topRight.y;
-		corners.bottomRight.x;
-		corners.bottomRight.y;
-		corners.bottomLeft.x;
-		corners.bottomLeft.y;
-		imageUrl;
-
-		setTimeout(() => {
-			drawCornerZoomPatch({
-				canvas: cornerZoomCanvas,
-				image: imageEl,
-				activeCorner: activeCorner as CornerKey | null,
-				corners: corners as CornerMap,
-				patchRadius: CORNER_PATCH_RADIUS,
-				outputSize: CORNER_ZOOM_SIZE
-			});
-		}, 0);
-	});
 
 	/**
 	 * Small UI/helper utilities used by the page.
@@ -405,16 +280,28 @@
 		if (Date.now() < suppressClearSelectionUntil) return;
 		selectTarget(null);
 	}
+	function getCornerDelta(direction: Direction) {
+		if (!imageEl) return { dx: 0, dy: 0 };
+
+		const pxStepX = (stepSize / 100) * imageEl.naturalWidth;
+		const pxStepY = (stepSize / 100) * imageEl.naturalHeight;
+
+		if (direction === 'up') return { dx: 0, dy: -pxStepY };
+		if (direction === 'down') return { dx: 0, dy: pxStepY };
+		if (direction === 'left') return { dx: -pxStepX, dy: 0 };
+		if (direction === 'right') return { dx: pxStepX, dy: 0 };
+
+		return { dx: 0, dy: 0 };
+	}
 	function nudgeSelected(direction: 'up' | 'down' | 'left' | 'right') {
 		if (!selectedTarget) return;
 
 		if (selectedTarget.type === 'corner') {
 			const key = selectedTarget.key;
 
-			if (direction === 'up') moveCorner(key, 0, -stepSize);
-			if (direction === 'down') moveCorner(key, 0, stepSize);
-			if (direction === 'left') moveCorner(key, -stepSize, 0);
-			if (direction === 'right') moveCorner(key, stepSize, 0);
+			const { dx, dy } = getCornerDelta(direction);
+			moveCorner(key, dx, dy);
+
 			return;
 		}
 
@@ -437,16 +324,7 @@
 	function moveGuideByKey(guideKey: GuideKey, direction: Direction) {
 		markGuideAdjusted(guideKey);
 
-		const guideStep = Math.max(0.25, stepSize * 0.5);
-
-		guideInsetsPx = applyGuideDirection(
-			guideKey,
-			direction,
-			guideInsetsPx,
-			guideStep,
-			warpDisplayedImageRect.width,
-			warpDisplayedImageRect.height
-		);
+		guideInsetsPct = applyGuideDirection(guideKey, direction, guideInsetsPct, stepSize);
 	}
 	function scheduleNudgeWarp() {
 		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
@@ -517,22 +395,22 @@
 		markGuideAdjusted(draggingGuide);
 
 		if (draggingGuide === 'top') {
-			guideInsetsPx.top = Math.max(0, Math.min(rect.height, localY));
+			guideInsetsPct.top = (localY / Math.max(rect.height, 1)) * 100;
 			return;
 		}
 
 		if (draggingGuide === 'bottom') {
-			guideInsetsPx.bottom = Math.max(0, Math.min(rect.height, rect.height - localY));
+			guideInsetsPct.bottom = ((rect.height - localY) / Math.max(rect.height, 1)) * 100;
 			return;
 		}
 
 		if (draggingGuide === 'left') {
-			guideInsetsPx.left = Math.max(0, Math.min(rect.width, localX));
+			guideInsetsPct.left = (localX / Math.max(rect.width, 1)) * 100;
 			return;
 		}
 
 		if (draggingGuide === 'right') {
-			guideInsetsPx.right = Math.max(0, Math.min(rect.width, rect.width - localX));
+			guideInsetsPct.right = ((rect.width - localX) / Math.max(rect.width, 1)) * 100;
 		}
 	}
 	function stopGuideDrag() {
@@ -620,6 +498,11 @@
 		};
 	}
 
+	const topPx = $derived((guideInsetsPct.top / 100) * warpDisplayedImageRect.height);
+	const bottomPx = $derived((guideInsetsPct.bottom / 100) * warpDisplayedImageRect.height);
+	const leftPx = $derived((guideInsetsPct.left / 100) * warpDisplayedImageRect.width);
+	const rightPx = $derived((guideInsetsPct.right / 100) * warpDisplayedImageRect.width);
+
 	/**
 	 * Page-level zoom controls for the overall tool layout.
 	 * - applyPageZoom: steps the current page zoom to the next allowed value in PAGE_ZOOM_VALUES,
@@ -697,11 +580,11 @@
 			bottomRight: { x: 0, y: 0 }
 		};
 
-		guideInsetsPx = {
-			top: 24,
-			bottom: 24,
-			left: 24,
-			right: 24
+		guideInsetsPct = {
+			top: 5,
+			bottom: 5,
+			left: 5,
+			right: 5
 		};
 
 		hasAdjustedVerticalGuides = false;
@@ -723,7 +606,7 @@
 
 		pendingDetection = false;
 		pageZoom = 1;
-		stepSize = 1;
+		stepSize = .1;
 		isDark = true;
 
 		clearUploadInput();
@@ -1002,6 +885,142 @@
 	}
 
 	/**
+	 * Derived centering metrics and “perfect alignment” flags used by the UI.
+	 * - centeringStats: computed percentage split for top/bottom and left/right borders.
+	 * - verticalIsPerfect: true when vertical guide percentages are essentially 50/50
+	 *   and the user has already adjusted vertical guides.
+	 * - horizontalIsPerfect: true when horizontal guide percentages are essentially 50/50
+	 *   and the user has already adjusted horizontal guides.
+	 */
+
+	const centeringStats = $derived(
+		getCenteringStats({
+			top: topPx,
+			bottom: bottomPx,
+			left: leftPx,
+			right: rightPx
+		})
+	);
+
+	const PERFECT_TOLERANCE = 0.4;
+
+	const verticalIsPerfect = $derived(
+		hasAdjustedVerticalGuides &&
+			Math.abs(centeringStats.topPct - 50) <= PERFECT_TOLERANCE &&
+			Math.abs(centeringStats.bottomPct - 50) <= PERFECT_TOLERANCE
+	);
+
+	const horizontalIsPerfect = $derived(
+		hasAdjustedHorizontalGuides &&
+			Math.abs(centeringStats.leftPct - 50) <= PERFECT_TOLERANCE &&
+			Math.abs(centeringStats.rightPct - 50) <= PERFECT_TOLERANCE
+	);
+
+	/**
+	 * Watches control-readiness state and clears any pending delayed-upload timeout
+	 * while the image is still loading or segmentation is running.
+	 *
+	 * Once the UI is ready, it briefly keeps the timeout alive, then clears the
+	 * timer reference after the short delay. The cleanup function ensures no stale
+	 * timeout survives when the dependencies change or the component reruns.
+	 */
+
+	$effect(() => {
+		const shouldShow = !imageReadyForControls || isSegmenting;
+
+		if (shouldShow) {
+			if (hideUploadTimeout) {
+				clearTimeout(hideUploadTimeout);
+				hideUploadTimeout = null;
+			}
+			return;
+		}
+
+		if (hideUploadTimeout) clearTimeout(hideUploadTimeout);
+
+		hideUploadTimeout = setTimeout(() => {
+			hideUploadTimeout = null;
+		}, 220);
+
+		return () => {
+			if (hideUploadTimeout) {
+				clearTimeout(hideUploadTimeout);
+				hideUploadTimeout = null;
+			}
+		};
+	});
+
+	/**
+	 * Reattaches the shared ResizeObserver to the current source and warp container
+	 * elements whenever those element references change.
+	 *
+	 * This keeps layout measurements in sync after remounts, conditional rendering,
+	 * or DOM replacement during state transitions.
+	 */
+
+	$effect(() => {
+		if (!resizeObserver) return;
+
+		resizeObserver.disconnect();
+
+		if (containerEl) {
+			resizeObserver.observe(containerEl);
+		}
+
+		if (warpContainerEl) {
+			resizeObserver.observe(warpContainerEl);
+		}
+	});
+
+	/**
+	 * When a new warped image URL is produced, waits until the next task so the DOM
+	 * can paint the updated image, then recomputes the warp preview display bounds.
+	 *
+	 * This keeps guide overlays aligned to the visible warped image after rerender.
+	 */
+
+	$effect(() => {
+		if (!warpedImageUrl) return;
+
+		setTimeout(() => {
+			updateWarpDisplayedImageRect();
+		}, 0);
+	});
+
+	/**
+	 * Reacts to active-corner changes, corner coordinate updates, and source-image
+	 * changes, then redraws the magnified corner preview canvas on the next task.
+	 *
+	 * Explicit property reads are used to make the effect rerun whenever any corner
+	 * position changes, ensuring the zoom patch and connecting guide lines stay in
+	 * sync with manual adjustments.
+	 */
+
+	$effect(() => {
+		activeCorner;
+		corners.topLeft.x;
+		corners.topLeft.y;
+		corners.topRight.x;
+		corners.topRight.y;
+		corners.bottomRight.x;
+		corners.bottomRight.y;
+		corners.bottomLeft.x;
+		corners.bottomLeft.y;
+		imageUrl;
+
+		setTimeout(() => {
+			drawCornerZoomPatch({
+				canvas: cornerZoomCanvas,
+				image: imageEl,
+				activeCorner: activeCorner as CornerKey | null,
+				corners: corners as CornerMap,
+				patchRadius: CORNER_PATCH_RADIUS,
+				outputSize: CORNER_ZOOM_SIZE
+			});
+		}, 0);
+	});
+
+	/**
 	 * Component lifecycle hooks.
 	 * - onDestroy: performs final cleanup when the page/component is removed by revoking active blob URLs,
 	 *   clearing pending warp-refresh timers, and detaching any global pointer listeners left from an active guide drag.
@@ -1131,11 +1150,10 @@
 										}}
 										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm transition outline-none focus:border-blue-500"
 									>
-										<option value={0.25}>.25 px</option>
-										<option value={0.5}>.5 px</option>
-										<option value={1}>1 px</option>
-										<option value={2}>2 px</option>
-										<option value={5}>5 px</option>
+										<option value={0.01}>0.01%</option>
+										<option value={0.025}>0.025%</option>
+										<option value={0.05}>0.05%</option>
+										<option value={.1}>.1%</option>
 									</select>
 								</div>
 
@@ -2123,9 +2141,9 @@
 											<!-- top -->
 											<line
 												x1="0"
-												y1={guideInsetsPx.top}
+												y1={topPx}
 												x2={warpDisplayedImageRect.width}
-												y2={guideInsetsPx.top}
+												y2={topPx}
 												stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
 												stroke-width="2"
 												stroke-dasharray="10 8"
@@ -2136,9 +2154,9 @@
 											<!-- bottom -->
 											<line
 												x1="0"
-												y1={warpDisplayedImageRect.height - guideInsetsPx.bottom}
+												y1={warpDisplayedImageRect.height - bottomPx}
 												x2={warpDisplayedImageRect.width}
-												y2={warpDisplayedImageRect.height - guideInsetsPx.bottom}
+												y2={warpDisplayedImageRect.height - bottomPx}
 												stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
 												stroke-width="2"
 												stroke-dasharray="10 8"
@@ -2148,9 +2166,9 @@
 
 											<!-- left -->
 											<line
-												x1={guideInsetsPx.left}
+												x1={leftPx}
 												y1="0"
-												x2={guideInsetsPx.left}
+												x2={leftPx}
 												y2={warpDisplayedImageRect.height}
 												stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
 												stroke-width="2"
@@ -2161,9 +2179,9 @@
 
 											<!-- right -->
 											<line
-												x1={warpDisplayedImageRect.width - guideInsetsPx.right}
+												x1={warpDisplayedImageRect.width - rightPx}
 												y1="0"
-												x2={warpDisplayedImageRect.width - guideInsetsPx.right}
+												x2={warpDisplayedImageRect.width - rightPx}
 												y2={warpDisplayedImageRect.height}
 												stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
 												stroke-width="2"
@@ -2180,7 +2198,7 @@
 												type="button"
 												aria-label="Adjust top guide"
 												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
-												style={`top: ${guideInsetsPx.top}px;`}
+												style={`top: ${topPx}px;`}
 												onpointerdown={(e) => {
 													e.stopPropagation();
 													startGuideDrag(e, 'top');
@@ -2199,7 +2217,7 @@
 												type="button"
 												aria-label="Adjust bottom guide"
 												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
-												style={`top: ${warpDisplayedImageRect.height - guideInsetsPx.bottom}px;`}
+												style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
 												onpointerdown={(e) => {
 													e.stopPropagation();
 													startGuideDrag(e, 'bottom');
@@ -2218,7 +2236,7 @@
 												type="button"
 												aria-label="Adjust left guide"
 												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
-												style={`left: ${guideInsetsPx.left}px;`}
+												style={`left: ${leftPx}px;`}
 												onpointerdown={(e) => {
 													e.stopPropagation();
 													startGuideDrag(e, 'left');
@@ -2237,7 +2255,7 @@
 												type="button"
 												aria-label="Adjust right guide"
 												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
-												style={`left: ${warpDisplayedImageRect.width - guideInsetsPx.right}px;`}
+												style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
 												onpointerdown={(e) => {
 													e.stopPropagation();
 													startGuideDrag(e, 'right');
@@ -2254,7 +2272,7 @@
 											{#if activeGuide === 'top'}
 												<div
 													class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 translate-y-[40%] items-center justify-center"
-													style={`top: ${guideInsetsPx.top}px;`}
+													style={`top: ${topPx}px;`}
 												>
 													<svg
 														viewBox="0 0 80 80"
@@ -2274,7 +2292,7 @@
 											{#if activeGuide === 'bottom'}
 												<div
 													class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-[140%] items-center justify-center"
-													style={`top: ${warpDisplayedImageRect.height - guideInsetsPx.bottom}px;`}
+													style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
 												>
 													<svg
 														viewBox="0 0 80 80"
@@ -2294,7 +2312,7 @@
 											{#if activeGuide === 'left'}
 												<div
 													class="pointer-events-none absolute top-1/2 flex translate-x-[40%] -translate-y-1/2 items-center justify-center"
-													style={`left: ${guideInsetsPx.left}px;`}
+													style={`left: ${leftPx}px;`}
 												>
 													<svg
 														viewBox="0 0 80 80"
@@ -2314,7 +2332,7 @@
 											{#if activeGuide === 'right'}
 												<div
 													class="pointer-events-none absolute top-1/2 flex -translate-x-[140%] -translate-y-1/2 items-center justify-center"
-													style={`left: ${warpDisplayedImageRect.width - guideInsetsPx.right}px;`}
+													style={`left: ${warpDisplayedImageRect.width - guideInsetsPct.right}px;`}
 												>
 													<svg
 														viewBox="0 0 80 80"

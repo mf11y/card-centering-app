@@ -30,57 +30,48 @@ export function moveCornerValue(
 	};
 }
 
-function moveGuideValue(
-	guideInsetsPx: Record<GuideKey, number>,
+function moveGuidePercentValue(
+	guideInsetsPct: Record<GuideKey, number>,
 	guideKey: GuideKey,
 	directionDelta: number,
-	stepSize: number,
-	warpWidth: number,
-	warpHeight: number
+	stepPercent: number
 ) {
-	const limit =
-		guideKey === 'left' || guideKey === 'right'
-			? Math.max(warpWidth, 1)
-			: Math.max(warpHeight, 1);
-
-	const next = guideInsetsPx[guideKey] + directionDelta * stepSize;
+	const next = guideInsetsPct[guideKey] + directionDelta * stepPercent;
 
 	return {
-		...guideInsetsPx,
-		[guideKey]: Math.max(0, Math.min(limit, next))
+		...guideInsetsPct,
+		[guideKey]: Math.max(0, Math.min(100, next))
 	};
 }
 
 export function applyGuideDirection(
 	activeGuide: GuideKey | null,
 	direction: Direction,
-	guideInsetsPx: Record<GuideKey, number>,
-	stepSize: number,
-	warpWidth: number,
-	warpHeight: number
+	guideInsetsPct: Record<GuideKey, number>,
+	stepPercent: number
 ) {
-	if (!activeGuide) return guideInsetsPx;
+	if (!activeGuide) return guideInsetsPct;
 
 	if (activeGuide === 'top') {
-		if (direction === 'up') return moveGuideValue(guideInsetsPx, 'top', -1, stepSize, warpWidth, warpHeight);
-		if (direction === 'down') return moveGuideValue(guideInsetsPx, 'top', 1, stepSize, warpWidth, warpHeight);
-		return guideInsetsPx;
+		if (direction === 'up') return moveGuidePercentValue(guideInsetsPct, 'top', -1, stepPercent);
+		if (direction === 'down') return moveGuidePercentValue(guideInsetsPct, 'top', 1, stepPercent);
+		return guideInsetsPct;
 	}
 
 	if (activeGuide === 'bottom') {
-		if (direction === 'down') return moveGuideValue(guideInsetsPx, 'bottom', -1, stepSize, warpWidth, warpHeight);
-		if (direction === 'up') return moveGuideValue(guideInsetsPx, 'bottom', 1, stepSize, warpWidth, warpHeight);
-		return guideInsetsPx;
+		if (direction === 'down') return moveGuidePercentValue(guideInsetsPct, 'bottom', -1, stepPercent);
+		if (direction === 'up') return moveGuidePercentValue(guideInsetsPct, 'bottom', 1, stepPercent);
+		return guideInsetsPct;
 	}
 
 	if (activeGuide === 'left') {
-		if (direction === 'left') return moveGuideValue(guideInsetsPx, 'left', -1, stepSize, warpWidth, warpHeight);
-		if (direction === 'right') return moveGuideValue(guideInsetsPx, 'left', 1, stepSize, warpWidth, warpHeight);
-		return guideInsetsPx;
+		if (direction === 'left') return moveGuidePercentValue(guideInsetsPct, 'left', -1, stepPercent);
+		if (direction === 'right') return moveGuidePercentValue(guideInsetsPct, 'left', 1, stepPercent);
+		return guideInsetsPct;
 	}
 
-	if (direction === 'right') return moveGuideValue(guideInsetsPx, 'right', -1, stepSize, warpWidth, warpHeight);
-	if (direction === 'left') return moveGuideValue(guideInsetsPx, 'right', 1, stepSize, warpWidth, warpHeight);
+	if (direction === 'right') return moveGuidePercentValue(guideInsetsPct, 'right', -1, stepPercent);
+	if (direction === 'left') return moveGuidePercentValue(guideInsetsPct, 'right', 1, stepPercent);
 
-	return guideInsetsPx;
+	return guideInsetsPct;
 }
