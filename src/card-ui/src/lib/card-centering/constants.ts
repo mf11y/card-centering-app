@@ -11,7 +11,7 @@ export const PAGE_ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
 
 export const ZOOM_VALUES = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
 
-export const ALERT_THRESHOLD = 55.1;
+export const ALERT_THRESHOLD = 55.4;
 
 export const centeringGuides = [
 	{ id: 'top', orientation: 'horizontal' },
