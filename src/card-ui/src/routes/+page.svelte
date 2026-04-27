@@ -94,7 +94,7 @@
 		left: 5,
 		right: 5
 	});
-	let stepSize = $state(.1);
+	let stepSize = $state(0.1);
 
 	/**
 	 * Layout measurements and DOM element references used for rendering math,
@@ -138,6 +138,14 @@
 	let frozenStage = $state<{ width: number; height: number } | null>(null);
 	let zoomLevel = $state(1);
 	let pageZoom = $state(1);
+	let sourceViewZoom = $state(1);
+	let sourceViewPan = $state({ x: 0, y: 0 });
+
+	let warpViewZoom = $state(1);
+	let warpViewPan = $state({ x: 0, y: 0 });
+
+	let isViewPanning = false;
+	let viewPanStart = { pointerX: 0, pointerY: 0, panX: 0, panY: 0 };
 	let animateSourceZoom = $state(false);
 	let sourceImageVisible = $state(false);
 
@@ -350,14 +358,20 @@
 	 */
 
 	function onPointerMove(e: PointerEvent) {
-		if (!draggingCorner || !imageEl) return;
+		if (!draggingCorner || !imageEl || !containerEl) return;
 
 		didDragCorner = true;
 
-		const rect = imageEl.getBoundingClientRect();
+		const containerRect = containerEl.getBoundingClientRect();
 
-		const x = ((e.clientX - rect.left) / rect.width) * imageEl.naturalWidth;
-		const y = ((e.clientY - rect.top) / rect.height) * imageEl.naturalHeight;
+		const localX = e.clientX - containerRect.left - displayedImageRect.x;
+		const localY = e.clientY - containerRect.top - displayedImageRect.y;
+
+		const unzoomedX = (localX - sourceViewPan.x) / sourceViewZoom;
+		const unzoomedY = (localY - sourceViewPan.y) / sourceViewZoom;
+
+		const x = (unzoomedX / Math.max(displayedImageRect.width, 1)) * imageEl.naturalWidth;
+		const y = (unzoomedY / Math.max(displayedImageRect.height, 1)) * imageEl.naturalHeight;
 
 		const clampedX = Math.max(0, Math.min(imageEl.naturalWidth, x));
 		const clampedY = Math.max(0, Math.min(imageEl.naturalHeight, y));
@@ -389,28 +403,36 @@
 
 		const rect = warpContainerEl.getBoundingClientRect();
 
-		const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-		const localY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+		const localX = e.clientX - rect.left;
+		const localY = e.clientY - rect.top;
+
+		const unzoomedX = (localX - warpViewPan.x) / warpViewZoom;
+		const unzoomedY = (localY - warpViewPan.y) / warpViewZoom;
+
+		const x = Math.max(0, Math.min(warpDisplayedImageRect.width, unzoomedX));
+		const y = Math.max(0, Math.min(warpDisplayedImageRect.height, unzoomedY));
 
 		markGuideAdjusted(draggingGuide);
 
 		if (draggingGuide === 'top') {
-			guideInsetsPct.top = (localY / Math.max(rect.height, 1)) * 100;
+			guideInsetsPct.top = (y / Math.max(warpDisplayedImageRect.height, 1)) * 100;
 			return;
 		}
 
 		if (draggingGuide === 'bottom') {
-			guideInsetsPct.bottom = ((rect.height - localY) / Math.max(rect.height, 1)) * 100;
+			guideInsetsPct.bottom =
+				((warpDisplayedImageRect.height - y) / Math.max(warpDisplayedImageRect.height, 1)) * 100;
 			return;
 		}
 
 		if (draggingGuide === 'left') {
-			guideInsetsPct.left = (localX / Math.max(rect.width, 1)) * 100;
+			guideInsetsPct.left = (x / Math.max(warpDisplayedImageRect.width, 1)) * 100;
 			return;
 		}
 
 		if (draggingGuide === 'right') {
-			guideInsetsPct.right = ((rect.width - localX) / Math.max(rect.width, 1)) * 100;
+			guideInsetsPct.right =
+				((warpDisplayedImageRect.width - x) / Math.max(warpDisplayedImageRect.width, 1)) * 100;
 		}
 	}
 	function stopGuideDrag() {
@@ -502,6 +524,7 @@
 	const bottomPx = $derived((guideInsetsPct.bottom / 100) * warpDisplayedImageRect.height);
 	const leftPx = $derived((guideInsetsPct.left / 100) * warpDisplayedImageRect.width);
 	const rightPx = $derived((guideInsetsPct.right / 100) * warpDisplayedImageRect.width);
+	const showCornerZoomPatch = $derived(imageUrl && activeCorner && sourceViewZoom <= 1.001);
 
 	/**
 	 * Page-level zoom controls for the overall tool layout.
@@ -524,6 +547,177 @@
 
 	function zoomPageOut() {
 		applyPageZoom(-1);
+	}
+
+	const IMAGE_VIEW_ZOOM_MIN = 1;
+	const IMAGE_VIEW_ZOOM_MAX = 4;
+	const IMAGE_VIEW_ZOOM_STEP = 0.12;
+
+	function clampViewPan(pan: { x: number; y: number }, zoom: number, kind: 'source' | 'warp') {
+		if (zoom <= 1) return { x: 0, y: 0 };
+
+		const rect = kind === 'source' ? displayedImageRect : warpDisplayedImageRect;
+
+		const extraX = rect.width * (zoom - 1);
+		const extraY = rect.height * (zoom - 1);
+
+		return {
+			x: Math.max(-extraX, Math.min(0, pan.x)),
+			y: Math.max(-extraY, Math.min(0, pan.y))
+		};
+	}
+
+	function clampImageViewZoom(value: number) {
+		return Math.max(IMAGE_VIEW_ZOOM_MIN, Math.min(IMAGE_VIEW_ZOOM_MAX, value));
+	}
+
+	function getViewZoomStyle(kind: 'source' | 'warp') {
+		const zoom = kind === 'source' ? sourceViewZoom : warpViewZoom;
+		const pan = kind === 'source' ? sourceViewPan : warpViewPan;
+
+		return `
+		transform: translate(${pan.x}px, ${pan.y}px) scale(${zoom});
+		transform-origin: top left;
+		will-change: transform;
+	`;
+	}
+
+	function ctrlWheelZoom(node: HTMLElement, kind: 'source' | 'warp') {
+		function getZoom() {
+			return kind === 'source' ? sourceViewZoom : warpViewZoom;
+		}
+
+		function getPan() {
+			return kind === 'source' ? sourceViewPan : warpViewPan;
+		}
+
+		function setZoom(value: number) {
+			if (kind === 'source') sourceViewZoom = value;
+			else warpViewZoom = value;
+		}
+
+		function setPan(value: { x: number; y: number }) {
+			if (kind === 'source') sourceViewPan = value;
+			else warpViewPan = value;
+		}
+
+		function getBaseRectOffset() {
+			if (kind === 'source') {
+				return {
+					x: displayedImageRect.x,
+					y: displayedImageRect.y,
+					width: displayedImageRect.width,
+					height: displayedImageRect.height
+				};
+			}
+
+			return {
+				x: 0,
+				y: 0,
+				width: warpDisplayedImageRect.width,
+				height: warpDisplayedImageRect.height
+			};
+		}
+
+		function onWheel(e: WheelEvent) {
+			if (!e.ctrlKey) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+
+			const oldZoom = getZoom();
+			const oldPan = getPan();
+
+			const direction = e.deltaY < 0 ? 1 : -1;
+			const newZoom = clampImageViewZoom(oldZoom + direction * IMAGE_VIEW_ZOOM_STEP);
+
+			const viewportRect = node.getBoundingClientRect();
+			const base = getBaseRectOffset();
+
+			const mouseX = e.clientX - viewportRect.left - base.x;
+			const mouseY = e.clientY - viewportRect.top - base.y;
+
+			const imageXBeforeZoom = (mouseX - oldPan.x) / oldZoom;
+			const imageYBeforeZoom = (mouseY - oldPan.y) / oldZoom;
+
+			const nextPan = {
+				x: mouseX - imageXBeforeZoom * newZoom,
+				y: mouseY - imageYBeforeZoom * newZoom
+			};
+
+			setZoom(newZoom);
+			setPan(clampViewPan(nextPan, newZoom, kind));
+		}
+
+		function onPointerDown(e: PointerEvent) {
+			if (getZoom() <= 1) return;
+
+			const target = e.target as HTMLElement | null;
+			if (target?.closest('button')) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+
+			const currentPan = getPan();
+
+			isViewPanning = true;
+
+			viewPanStart = {
+				pointerX: e.clientX,
+				pointerY: e.clientY,
+				panX: currentPan.x,
+				panY: currentPan.y
+			};
+
+			node.setPointerCapture(e.pointerId);
+		}
+
+		function onPointerMove(e: PointerEvent) {
+			if (!isViewPanning) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+
+			const dx = e.clientX - viewPanStart.pointerX;
+			const dy = e.clientY - viewPanStart.pointerY;
+
+			setPan(
+				clampViewPan(
+					{
+						x: viewPanStart.panX + dx,
+						y: viewPanStart.panY + dy
+					},
+					getZoom(),
+					kind
+				)
+			);
+		}
+
+		function onPointerUp(e: PointerEvent) {
+			if (!isViewPanning) return;
+
+			isViewPanning = false;
+
+			try {
+				node.releasePointerCapture(e.pointerId);
+			} catch {}
+		}
+
+		node.addEventListener('wheel', onWheel, { passive: false });
+		node.addEventListener('pointerdown', onPointerDown);
+		node.addEventListener('pointermove', onPointerMove);
+		node.addEventListener('pointerup', onPointerUp);
+		node.addEventListener('pointercancel', onPointerUp);
+
+		return {
+			destroy() {
+				node.removeEventListener('wheel', onWheel);
+				node.removeEventListener('pointerdown', onPointerDown);
+				node.removeEventListener('pointermove', onPointerMove);
+				node.removeEventListener('pointerup', onPointerUp);
+				node.removeEventListener('pointercancel', onPointerUp);
+			}
+		};
 	}
 
 	/**
@@ -565,6 +759,11 @@
 		frozenStage = null;
 		autoZoomToCorners = false;
 		zoomLevel = 1;
+		sourceViewZoom = 1;
+		sourceViewPan = { x: 0, y: 0 };
+
+		warpViewZoom = 1;
+		warpViewPan = { x: 0, y: 0 };
 		imageReadyForControls = false;
 		animateSourceZoom = false;
 		sourceImageVisible = false;
@@ -606,7 +805,7 @@
 
 		pendingDetection = false;
 		pageZoom = 1;
-		stepSize = .1;
+		stepSize = 0.1;
 		isDark = true;
 
 		clearUploadInput();
@@ -997,6 +1196,7 @@
 	 */
 
 	$effect(() => {
+		showCornerZoomPatch;
 		activeCorner;
 		corners.topLeft.x;
 		corners.topLeft.y;
@@ -1007,6 +1207,14 @@
 		corners.bottomLeft.x;
 		corners.bottomLeft.y;
 		imageUrl;
+
+		if (!showCornerZoomPatch) {
+			if (cornerZoomCanvas) {
+				const ctx = cornerZoomCanvas.getContext('2d');
+				ctx?.clearRect(0, 0, cornerZoomCanvas.width, cornerZoomCanvas.height);
+			}
+			return;
+		}
 
 		setTimeout(() => {
 			drawCornerZoomPatch({
@@ -1153,7 +1361,7 @@
 										<option value={0.01}>0.01%</option>
 										<option value={0.025}>0.025%</option>
 										<option value={0.05}>0.05%</option>
-										<option value={.1}>.1%</option>
+										<option value={0.1}>.1%</option>
 									</select>
 								</div>
 
@@ -1586,23 +1794,24 @@
 										}}
 									>
 										<!-- fixed review viewport -->
-										<div class="absolute inset-0 overflow-hidden rounded-xl">
+										<div
+											class="absolute inset-0 overflow-hidden rounded-xl"
+											use:ctrlWheelZoom={'source'}
+										>
 											<!-- static background fill so no black bars ever appear -->
 											<div class="absolute inset-0 bg-zinc-950"></div>
 
 											<!-- fixed image plane -->
 											<div
-												class={`absolute overflow-hidden ${animateSourceZoom ? 'transition-[transform] duration-700 ease-out' : ''}`}
+												class="absolute overflow-hidden"
 												style={`
-															left: ${displayedImageRect.x}px;
-															top: ${displayedImageRect.y}px;
-															width: ${displayedImageRect.width}px;
-															height: ${displayedImageRect.height}px;
-															will-change: transform;
-															${getZoomStyleLocal()}
-														`}
+														left: ${displayedImageRect.x}px;
+														top: ${displayedImageRect.y}px;
+														width: ${displayedImageRect.width}px;
+														height: ${displayedImageRect.height}px;
+													`}
 											>
-												<div class="absolute inset-0">
+												<div class="absolute inset-0" style={getViewZoomStyle('source')}>
 													<img
 														bind:this={imageEl}
 														src={imageUrl}
@@ -1660,77 +1869,77 @@
 															opacity="1"
 														/>
 													</svg>
-												</div>
-												{#each cornerOverlayItems as corner}
-													<button
-														type="button"
-														aria-label={`Toggle ${corner.key} arrow control`}
-														aria-pressed={activeCorner === corner.key}
-														class="absolute z-10 flex h-10 w-10 items-center justify-center"
-														style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
-														style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
-														style:transform={corner.key === 'topLeft'
-															? 'translate(-85%, -85%)'
-															: corner.key === 'topRight'
-																? 'translate(-15%, -85%)'
-																: corner.key === 'bottomLeft'
-																	? 'translate(-85%, -15%)'
-																	: 'translate(-15%, -15%)'}
-														onpointerdown={(e) => {
-															e.stopPropagation();
-															e.preventDefault();
+													{#each cornerOverlayItems as corner}
+														<button
+															type="button"
+															aria-label={`Toggle ${corner.key} arrow control`}
+															aria-pressed={activeCorner === corner.key}
+															class="absolute z-10 flex h-10 w-10 items-center justify-center"
+															style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
+															style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
+															style:transform={corner.key === 'topLeft'
+																? 'translate(-85%, -85%)'
+																: corner.key === 'topRight'
+																	? 'translate(-15%, -85%)'
+																	: corner.key === 'bottomLeft'
+																		? 'translate(-85%, -15%)'
+																		: 'translate(-15%, -15%)'}
+															onpointerdown={(e) => {
+																e.stopPropagation();
+																e.preventDefault();
 
-															selectTarget({ type: 'corner', key: corner.key });
-															draggingCorner = corner.key;
-															didDragCorner = false;
+																selectTarget({ type: 'corner', key: corner.key });
+																draggingCorner = corner.key;
+																didDragCorner = false;
 
-															window.addEventListener('pointermove', onPointerMove);
-															window.addEventListener('pointerup', stopDrag);
-														}}
-														onclick={(e) => {
-															e.stopPropagation();
-															selectTarget({ type: 'corner', key: corner.key });
-														}}
-														data-source-corner="true"
-														data-corner-key={corner.key}
-													>
-														<div
-															class={`h-7 w-7 transition ${
-																activeCorner === corner.key
-																	? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
-																	: 'text-cyan-400 hover:text-green-300'
-															}`}
+																window.addEventListener('pointermove', onPointerMove);
+																window.addEventListener('pointerup', stopDrag);
+															}}
+															onclick={(e) => {
+																e.stopPropagation();
+																selectTarget({ type: 'corner', key: corner.key });
+															}}
+															data-source-corner="true"
+															data-corner-key={corner.key}
 														>
-															<svg
-																viewBox="0 0 24 24"
-																fill="none"
-																stroke="currentColor"
-																stroke-width="2.25"
-																stroke-linecap="round"
-																stroke-linejoin="round"
-																class={`h-full w-full ${
-																	corner.key === 'topLeft'
-																		? 'rotate-180'
-																		: corner.key === 'topRight'
-																			? '-rotate-90'
-																			: corner.key === 'bottomRight'
-																				? 'rotate-0'
-																				: 'rotate-90'
+															<div
+																class={`h-7 w-7 transition ${
+																	activeCorner === corner.key
+																		? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
+																		: 'text-cyan-400 hover:text-green-300'
 																}`}
-																aria-hidden="true"
 															>
-																<path d="M19 19L5 5" />
-																<path d="M5 11V5H11" />
-															</svg>
-														</div></button
-													>
-												{/each}
+																<svg
+																	viewBox="0 0 24 24"
+																	fill="none"
+																	stroke="currentColor"
+																	stroke-width="2.25"
+																	stroke-linecap="round"
+																	stroke-linejoin="round"
+																	class={`h-full w-full ${
+																		corner.key === 'topLeft'
+																			? 'rotate-180'
+																			: corner.key === 'topRight'
+																				? '-rotate-90'
+																				: corner.key === 'bottomRight'
+																					? 'rotate-0'
+																					: 'rotate-90'
+																	}`}
+																	aria-hidden="true"
+																>
+																	<path d="M19 19L5 5" />
+																	<path d="M5 11V5H11" />
+																</svg>
+															</div></button
+														>
+													{/each}
+												</div>
 											</div>
 										</div>
 									</div>
 								{/if}
 							</div>
-							{#if imageUrl && activeCorner}
+							{#if showCornerZoomPatch}
 								<div
 									transition:fade={{ duration: 180 }}
 									class="pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
@@ -2111,243 +2320,231 @@
 						<!-- Warp Image -->
 						<div class="flex w-full items-center justify-start xl:justify-center">
 							<div
-								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none border border-dashed border-zinc-700 bg-zinc-950"
+								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950"
 								bind:this={warpContainerEl}
+								use:ctrlWheelZoom={'warp'}
 								role="button"
 								tabindex="0"
-								onclick={clearActiveSelection}
-								onkeydown={(e) => {
-									if (e.key === 'Enter' || e.key === ' ') {
-										e.preventDefault();
-										clearActiveSelection();
-									}
-								}}
 							>
 								{#if warpedImageUrl}
 									<div class="absolute inset-0 overflow-hidden">
-										<img
-											src={warpedImageUrl}
-											alt="Warped preview"
-											class="absolute inset-0 h-full w-full object-cover"
-											onload={() => updateWarpDisplayedImageRect()}
-											draggable="false"
-										/>
-
-										<svg
-											class="pointer-events-none absolute inset-0 h-full w-full"
-											viewBox={`0 0 ${Math.max(warpDisplayedImageRect.width, 1)} ${Math.max(warpDisplayedImageRect.height, 1)}`}
-											preserveAspectRatio="none"
-										>
-											<!-- top -->
-											<line
-												x1="0"
-												y1={topPx}
-												x2={warpDisplayedImageRect.width}
-												y2={topPx}
-												stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
-												stroke-width="2"
-												stroke-dasharray="10 8"
-												stroke-linecap="round"
-												vector-effect="non-scaling-stroke"
+										<div class="absolute inset-0" style={getViewZoomStyle('warp')}>
+											<img
+												src={warpedImageUrl}
+												alt="Warped preview"
+												class="absolute inset-0 h-full w-full object-cover"
+												onload={() => updateWarpDisplayedImageRect()}
+												draggable="false"
 											/>
 
-											<!-- bottom -->
-											<line
-												x1="0"
-												y1={warpDisplayedImageRect.height - bottomPx}
-												x2={warpDisplayedImageRect.width}
-												y2={warpDisplayedImageRect.height - bottomPx}
-												stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
-												stroke-width="2"
-												stroke-dasharray="10 8"
-												stroke-linecap="round"
-												vector-effect="non-scaling-stroke"
-											/>
+											<svg
+												class="pointer-events-none absolute inset-0 h-full w-full"
+												viewBox={`0 0 ${Math.max(warpDisplayedImageRect.width, 1)} ${Math.max(warpDisplayedImageRect.height, 1)}`}
+												preserveAspectRatio="none"
+											>
+												<line
+													x1="0"
+													y1={topPx}
+													x2={warpDisplayedImageRect.width}
+													y2={topPx}
+													stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
+													stroke-width={2 / sourceViewZoom}
+													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-linecap="round"
+												/>
 
-											<!-- left -->
-											<line
-												x1={leftPx}
-												y1="0"
-												x2={leftPx}
-												y2={warpDisplayedImageRect.height}
-												stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
-												stroke-width="2"
-												stroke-dasharray="10 8"
-												stroke-linecap="round"
-												vector-effect="non-scaling-stroke"
-											/>
+												<line
+													x1="0"
+													y1={warpDisplayedImageRect.height - bottomPx}
+													x2={warpDisplayedImageRect.width}
+													y2={warpDisplayedImageRect.height - bottomPx}
+													stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
+													stroke-width={2 / sourceViewZoom}
+													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-linecap="round"
+												/>
 
-											<!-- right -->
-											<line
-												x1={warpDisplayedImageRect.width - rightPx}
-												y1="0"
-												x2={warpDisplayedImageRect.width - rightPx}
-												y2={warpDisplayedImageRect.height}
-												stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
-												stroke-width="2"
-												stroke-dasharray="10 8"
-												stroke-linecap="round"
-												vector-effect="non-scaling-stroke"
-											/>
-										</svg>
+												<line
+													x1={leftPx}
+													y1="0"
+													x2={leftPx}
+													y2={warpDisplayedImageRect.height}
+													stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
+													stroke-width={2 / sourceViewZoom}
+													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-linecap="round"
+												/>
 
-										<div class="absolute inset-0">
-											<!-- top click target -->
-											<!-- top -->
-											<button
-												type="button"
-												aria-label="Adjust top guide"
-												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
-												style={`top: ${topPx}px;`}
-												onpointerdown={(e) => {
-													e.stopPropagation();
-													startGuideDrag(e, 'top');
-												}}
-												onclick={(e) => {
-													e.stopPropagation();
-													selectTarget({ type: 'guide', key: 'top' });
-												}}
-												onfocus={() => {
-													selectTarget({ type: 'guide', key: 'top' });
-												}}
-											></button>
+												<line
+													x1={warpDisplayedImageRect.width - rightPx}
+													y1="0"
+													x2={warpDisplayedImageRect.width - rightPx}
+													y2={warpDisplayedImageRect.height}
+													stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
+													stroke-width={2 / sourceViewZoom}
+													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-linecap="round"
+												/>
+											</svg>
 
-											<!-- bottom -->
-											<button
-												type="button"
-												aria-label="Adjust bottom guide"
-												class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
-												style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
-												onpointerdown={(e) => {
-													e.stopPropagation();
-													startGuideDrag(e, 'bottom');
-												}}
-												onclick={(e) => {
-													e.stopPropagation();
-													selectTarget({ type: 'guide', key: 'bottom' });
-												}}
-												onfocus={() => {
-													selectTarget({ type: 'guide', key: 'bottom' });
-												}}
-											></button>
-
-											<!-- left -->
-											<button
-												type="button"
-												aria-label="Adjust left guide"
-												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
-												style={`left: ${leftPx}px;`}
-												onpointerdown={(e) => {
-													e.stopPropagation();
-													startGuideDrag(e, 'left');
-												}}
-												onclick={(e) => {
-													e.stopPropagation();
-													selectTarget({ type: 'guide', key: 'left' });
-												}}
-												onfocus={() => {
-													selectTarget({ type: 'guide', key: 'left' });
-												}}
-											></button>
-
-											<!-- right -->
-											<button
-												type="button"
-												aria-label="Adjust right guide"
-												class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
-												style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
-												onpointerdown={(e) => {
-													e.stopPropagation();
-													startGuideDrag(e, 'right');
-												}}
-												onclick={(e) => {
-													e.stopPropagation();
-													selectTarget({ type: 'guide', key: 'right' });
-												}}
-												onfocus={() => {
-													selectTarget({ type: 'guide', key: 'right' });
-												}}
-											></button>
-
-											{#if activeGuide === 'top'}
-												<div
-													class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 translate-y-[40%] items-center justify-center"
+											<div class="absolute inset-0">
+												<!-- top click target -->
+												<!-- top -->
+												<button
+													type="button"
+													aria-label="Adjust top guide"
+													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
 													style={`top: ${topPx}px;`}
-												>
-													<svg
-														viewBox="0 0 80 80"
-														class="h-16 w-16 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="4.5"
-														stroke-linecap="round"
-														stroke-linejoin="round"
-													>
-														<path d="M40 66V18" />
-														<path d="M22 36L40 18L58 36" />
-													</svg>
-												</div>
-											{/if}
+													onpointerdown={(e) => {
+														e.stopPropagation();
+														startGuideDrag(e, 'top');
+													}}
+													onclick={(e) => {
+														e.stopPropagation();
+														selectTarget({ type: 'guide', key: 'top' });
+													}}
+													onfocus={() => {
+														selectTarget({ type: 'guide', key: 'top' });
+													}}
+												></button>
 
-											{#if activeGuide === 'bottom'}
-												<div
-													class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-[140%] items-center justify-center"
+												<!-- bottom -->
+												<button
+													type="button"
+													aria-label="Adjust bottom guide"
+													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
 													style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
-												>
-													<svg
-														viewBox="0 0 80 80"
-														class="h-16 w-16 rotate-180 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="4.5"
-														stroke-linecap="round"
-														stroke-linejoin="round"
-													>
-														<path d="M40 66V18" />
-														<path d="M22 36L40 18L58 36" />
-													</svg>
-												</div>
-											{/if}
+													onpointerdown={(e) => {
+														e.stopPropagation();
+														startGuideDrag(e, 'bottom');
+													}}
+													onclick={(e) => {
+														e.stopPropagation();
+														selectTarget({ type: 'guide', key: 'bottom' });
+													}}
+													onfocus={() => {
+														selectTarget({ type: 'guide', key: 'bottom' });
+													}}
+												></button>
 
-											{#if activeGuide === 'left'}
-												<div
-													class="pointer-events-none absolute top-1/2 flex translate-x-[40%] -translate-y-1/2 items-center justify-center"
+												<!-- left -->
+												<button
+													type="button"
+													aria-label="Adjust left guide"
+													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
 													style={`left: ${leftPx}px;`}
-												>
-													<svg
-														viewBox="0 0 80 80"
-														class="h-16 w-16 -rotate-90 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="4.5"
-														stroke-linecap="round"
-														stroke-linejoin="round"
-													>
-														<path d="M40 66V18" />
-														<path d="M22 36L40 18L58 36" />
-													</svg>
-												</div>
-											{/if}
+													onpointerdown={(e) => {
+														e.stopPropagation();
+														startGuideDrag(e, 'left');
+													}}
+													onclick={(e) => {
+														e.stopPropagation();
+														selectTarget({ type: 'guide', key: 'left' });
+													}}
+													onfocus={() => {
+														selectTarget({ type: 'guide', key: 'left' });
+													}}
+												></button>
 
-											{#if activeGuide === 'right'}
-												<div
-													class="pointer-events-none absolute top-1/2 flex -translate-x-[140%] -translate-y-1/2 items-center justify-center"
-													style={`left: ${warpDisplayedImageRect.width - guideInsetsPct.right}px;`}
-												>
-													<svg
-														viewBox="0 0 80 80"
-														class="h-16 w-16 rotate-90 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="4.5"
-														stroke-linecap="round"
-														stroke-linejoin="round"
+												<!-- right -->
+												<button
+													type="button"
+													aria-label="Adjust right guide"
+													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
+													style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
+													onpointerdown={(e) => {
+														e.stopPropagation();
+														startGuideDrag(e, 'right');
+													}}
+													onclick={(e) => {
+														e.stopPropagation();
+														selectTarget({ type: 'guide', key: 'right' });
+													}}
+													onfocus={() => {
+														selectTarget({ type: 'guide', key: 'right' });
+													}}
+												></button>
+
+												{#if activeGuide === 'top'}
+													<div
+														class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 translate-y-[40%] items-center justify-center"
+														style={`top: ${topPx}px;`}
 													>
-														<path d="M40 66V18" />
-														<path d="M22 36L40 18L58 36" />
-													</svg>
-												</div>
-											{/if}
+														<svg
+															viewBox="0 0 80 80"
+															class="h-16 w-16 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="4.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path d="M40 66V18" />
+															<path d="M22 36L40 18L58 36" />
+														</svg>
+													</div>
+												{/if}
+
+												{#if activeGuide === 'bottom'}
+													<div
+														class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-[140%] items-center justify-center"
+														style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
+													>
+														<svg
+															viewBox="0 0 80 80"
+															class="h-16 w-16 rotate-180 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="4.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path d="M40 66V18" />
+															<path d="M22 36L40 18L58 36" />
+														</svg>
+													</div>
+												{/if}
+
+												{#if activeGuide === 'left'}
+													<div
+														class="pointer-events-none absolute top-1/2 flex translate-x-[40%] -translate-y-1/2 items-center justify-center"
+														style={`left: ${leftPx}px;`}
+													>
+														<svg
+															viewBox="0 0 80 80"
+															class="h-16 w-16 -rotate-90 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="4.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path d="M40 66V18" />
+															<path d="M22 36L40 18L58 36" />
+														</svg>
+													</div>
+												{/if}
+
+												{#if activeGuide === 'right'}
+													<div
+														class="pointer-events-none absolute top-1/2 flex -translate-x-[140%] -translate-y-1/2 items-center justify-center"
+														style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
+													>
+														<svg
+															viewBox="0 0 80 80"
+															class="h-16 w-16 rotate-90 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="4.5"
+															stroke-linecap="round"
+															stroke-linejoin="round"
+														>
+															<path d="M40 66V18" />
+															<path d="M22 36L40 18L58 36" />
+														</svg>
+													</div>
+												{/if}
+											</div>
 										</div>
 									</div>
 								{:else}
