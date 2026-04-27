@@ -2376,11 +2376,13 @@
 						<!-- Warp Image -->
 						<div class="flex w-full items-center justify-start xl:justify-center">
 							<div
-								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950"
+								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950 focus:outline-none"
 								bind:this={warpContainerEl}
 								use:ctrlWheelZoom={'warp'}
-								role="button"
-								tabindex="0"
+								onpointerdown={(e) => {
+									if ((e.target as HTMLElement).closest('button')) return;
+									clearActiveSelection();
+								}}
 							>
 								{#if warpedImageUrl}
 									<div class="absolute inset-0 overflow-hidden">
