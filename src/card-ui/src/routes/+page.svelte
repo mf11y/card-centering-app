@@ -1571,41 +1571,80 @@
 										cx="60"
 										cy="30"
 										r="12"
+										role="button"
+										tabindex="0"
+										aria-label="Select top left corner"
 										class={activeCorner === 'topLeft'
-											? 'fill-cyan-400 stroke-cyan-300'
-											: 'fill-zinc-700 stroke-zinc-500'}
+											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => selectTarget({ type: 'corner', key: 'topLeft' })}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												selectTarget({ type: 'corner', key: 'topLeft' });
+											}
+										}}
 									/>
+
 									<circle
 										cx="160"
 										cy="30"
 										r="12"
+										role="button"
+										tabindex="0"
+										aria-label="Select top right corner"
 										class={activeCorner === 'topRight'
-											? 'fill-cyan-400 stroke-cyan-300'
-											: 'fill-zinc-700 stroke-zinc-500'}
+											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => selectTarget({ type: 'corner', key: 'topRight' })}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												selectTarget({ type: 'corner', key: 'topRight' });
+											}
+										}}
 									/>
+
 									<circle
 										cx="60"
 										cy="170"
 										r="12"
+										role="button"
+										tabindex="0"
+										aria-label="Select bottom left corner"
 										class={activeCorner === 'bottomLeft'
-											? 'fill-cyan-400 stroke-cyan-300'
-											: 'fill-zinc-700 stroke-zinc-500'}
+											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => selectTarget({ type: 'corner', key: 'bottomLeft' })}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												selectTarget({ type: 'corner', key: 'bottomLeft' });
+											}
+										}}
 									/>
+
 									<circle
 										cx="160"
 										cy="170"
 										r="12"
+										role="button"
+										tabindex="0"
+										aria-label="Select bottom right corner"
 										class={activeCorner === 'bottomRight'
-											? 'fill-cyan-400 stroke-cyan-300'
-											: 'fill-zinc-700 stroke-zinc-500'}
+											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => selectTarget({ type: 'corner', key: 'bottomRight' })}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												selectTarget({ type: 'corner', key: 'bottomRight' });
+											}
+										}}
 									/>
 								</svg>
 								<div class="grid grid-cols-3 gap-2">
@@ -1761,6 +1800,15 @@
 									document.getElementById('image-upload')?.click();
 								}
 							}}
+							onkeydown={(e) => {
+								if (e.key !== 'Enter' && e.key !== ' ') return;
+
+								e.preventDefault();
+
+								if (!imageUrl) {
+									document.getElementById('image-upload')?.click();
+								}
+							}}
 						>
 							<input
 								id="image-upload"
@@ -1814,7 +1862,7 @@
 													`}
 											>
 												<div
-													class="absolute inset-0 transition-transform duration-500 ease-out"
+													class="absolute inset-0 transition-transform duration-200 ease-out"
 													style={getViewZoomStyle('source')}
 												>
 													<img
@@ -2035,41 +2083,80 @@
 									cx="60"
 									cy="30"
 									r="12"
+									role="button"
+									tabindex="0"
+									aria-label="Select top left corner"
 									class={activeCorner === 'topLeft'
-										? 'fill-cyan-400 stroke-cyan-300'
-										: 'fill-zinc-700 stroke-zinc-500'}
+										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => selectTarget({ type: 'corner', key: 'topLeft' })}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'corner', key: 'topLeft' });
+										}
+									}}
 								/>
+
 								<circle
 									cx="160"
 									cy="30"
 									r="12"
+									role="button"
+									tabindex="0"
+									aria-label="Select top right corner"
 									class={activeCorner === 'topRight'
-										? 'fill-cyan-400 stroke-cyan-300'
-										: 'fill-zinc-700 stroke-zinc-500'}
+										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => selectTarget({ type: 'corner', key: 'topRight' })}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'corner', key: 'topRight' });
+										}
+									}}
 								/>
+
 								<circle
 									cx="60"
 									cy="170"
 									r="12"
+									role="button"
+									tabindex="0"
+									aria-label="Select bottom left corner"
 									class={activeCorner === 'bottomLeft'
-										? 'fill-cyan-400 stroke-cyan-300'
-										: 'fill-zinc-700 stroke-zinc-500'}
+										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => selectTarget({ type: 'corner', key: 'bottomLeft' })}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'corner', key: 'bottomLeft' });
+										}
+									}}
 								/>
+
 								<circle
 									cx="160"
 									cy="170"
 									r="12"
+									role="button"
+									tabindex="0"
+									aria-label="Select bottom right corner"
 									class={activeCorner === 'bottomRight'
-										? 'fill-cyan-400 stroke-cyan-300'
-										: 'fill-zinc-700 stroke-zinc-500'}
+										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => selectTarget({ type: 'corner', key: 'bottomRight' })}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'corner', key: 'bottomRight' });
+										}
+									}}
 								/>
 							</svg>
 							<div class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
@@ -2334,7 +2421,10 @@
 							>
 								{#if warpedImageUrl}
 									<div class="absolute inset-0 overflow-hidden">
-										<div class="absolute inset-0" style={getViewZoomStyle('warp')}>
+										<div
+											class="absolute inset-0 transition-transform duration-200 ease-out"
+											style={getViewZoomStyle('warp')}
+										>
 											<img
 												src={warpedImageUrl}
 												alt="Warped preview"
