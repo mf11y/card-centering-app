@@ -1707,7 +1707,8 @@
 									</li>
 									<li>
 										Use the warp preview to verify alignment. WASD, arrow pads, directional keys,
-										and mouse can be used to adjust. Zoom in for a closer view with ctrl + mouse wheel.
+										and mouse can be used to adjust. Zoom in for a closer view with ctrl + mouse
+										wheel.
 									</li>
 									<li>
 										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
@@ -1940,7 +1941,7 @@
 									}`}
 								>
 									<div
-										class="corner-zoom-frame pointer-events-auto relative border-2 border-dotted border-cyan-400 p-0"
+										class="corner-zoom-frame pointer-events-none relative border-2 border-dotted border-cyan-400 p-0"
 										style="box-shadow: 0 4px 12px rgba(0,0,0,0.5);"
 									>
 										<canvas
