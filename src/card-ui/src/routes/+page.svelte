@@ -853,6 +853,45 @@
 	 * - handleSourceImageLoad: finalizes source-image readiness after the image has rendered, updates
 	 *   layout measurements, reveals the source image, and triggers any pending detection request.
 	 */
+	function applyInitialSourceZoomToCorners() {
+		if (!imageEl) return;
+
+		const naturalWidth = imageEl.naturalWidth || 1;
+		const naturalHeight = imageEl.naturalHeight || 1;
+
+		const centerX =
+			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
+
+		const centerY =
+			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
+
+		const z = computeZoomMetrics({
+			autoZoomToCorners: true,
+			displayedImageRect,
+			naturalWidth,
+			naturalHeight,
+			corners
+		});
+
+		const nextZoom = clampImageViewZoom(z.scale);
+
+		const centerDisplayX = (centerX / naturalWidth) * displayedImageRect.width;
+		const centerDisplayY = (centerY / naturalHeight) * displayedImageRect.height;
+
+		const viewportCenterX = displayedImageRect.width / 2;
+		const viewportCenterY = displayedImageRect.height / 2;
+
+		sourceViewZoom = nextZoom;
+		sourceViewPan = clampViewPan(
+			{
+				x: viewportCenterX - centerDisplayX * nextZoom,
+				y: viewportCenterY - centerDisplayY * nextZoom
+			},
+			nextZoom,
+			'source'
+		);
+	}
+
 	function runWarpPreview() {
 		if (!imageEl) return;
 
@@ -940,43 +979,11 @@
 
 			resetSourceZoomState();
 
-			if (zoomLevel === 1) {
+			if (sourceViewZoom === 1) {
 				await tick();
-
-				const naturalWidth = imageEl?.naturalWidth || 1;
-				const naturalHeight = imageEl?.naturalHeight || 1;
-
-				const centerX =
-					(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) /
-					4;
-
-				const centerY =
-					(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) /
-					4;
-
-				const z = computeZoomMetrics({
-					autoZoomToCorners: true,
-					displayedImageRect,
-					naturalWidth,
-					naturalHeight,
-					corners
-				});
-
-				frozenStage = {
-					width: displayedImageRect.width,
-					height: displayedImageRect.height
-				};
-
-				await tick();
-
-				animateSourceZoom = true;
 
 				requestAnimationFrame(() => {
-					frozenZoom = {
-						scale: z.scale,
-						centerXNorm: centerX / naturalWidth,
-						centerYNorm: centerY / naturalHeight
-					};
+					applyInitialSourceZoomToCorners();
 				});
 			}
 		} catch (error) {
@@ -1806,7 +1813,10 @@
 														height: ${displayedImageRect.height}px;
 													`}
 											>
-												<div class="absolute inset-0" style={getViewZoomStyle('source')}>
+												<div
+													class="absolute inset-0 transition-transform duration-500 ease-out"
+													style={getViewZoomStyle('source')}
+												>
 													<img
 														bind:this={imageEl}
 														src={imageUrl}
