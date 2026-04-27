@@ -1703,11 +1703,11 @@
 									</li>
 									<li>
 										Line up the corners of the card. WASD, arrow pads, directional keys, and mouse
-										can be used to adjust.
+										can be used to adjust. Zoom in for a closer view with ctrl + mouse wheel.
 									</li>
 									<li>
 										Use the warp preview to verify alignment. WASD, arrow pads, directional keys,
-										and mouse can be used to adjust.
+										and mouse can be used to adjust. Zoom in for a closer view with ctrl + mouse wheel.
 									</li>
 									<li>
 										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
