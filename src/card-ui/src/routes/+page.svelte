@@ -1208,15 +1208,9 @@
 		corners.bottomLeft.y;
 		imageUrl;
 
-		if (!showCornerZoomPatch) {
-			if (cornerZoomCanvas) {
-				const ctx = cornerZoomCanvas.getContext('2d');
-				ctx?.clearRect(0, 0, cornerZoomCanvas.width, cornerZoomCanvas.height);
-			}
-			return;
-		}
+		if (!showCornerZoomPatch) return;
 
-		setTimeout(() => {
+		requestAnimationFrame(() => {
 			drawCornerZoomPatch({
 				canvas: cornerZoomCanvas,
 				image: imageEl,
@@ -1225,7 +1219,7 @@
 				patchRadius: CORNER_PATCH_RADIUS,
 				outputSize: CORNER_ZOOM_SIZE
 			});
-		}, 0);
+		});
 	});
 
 	/**
@@ -1939,10 +1933,11 @@
 									</div>
 								{/if}
 							</div>
-							{#if showCornerZoomPatch}
+							{#if imageUrl}
 								<div
-									transition:fade={{ duration: 180 }}
-									class="pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+									class={`pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-all duration-150 ease-out ${
+										showCornerZoomPatch ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+									}`}
 								>
 									<div
 										class="corner-zoom-frame pointer-events-auto relative border-2 border-dotted border-cyan-400 p-0"
