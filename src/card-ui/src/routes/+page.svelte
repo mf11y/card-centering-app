@@ -2407,8 +2407,8 @@
 													x2={warpDisplayedImageRect.width}
 													y2={topPx}
 													stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / sourceViewZoom}
-													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-width={2 / warpViewZoom}
+													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
 													stroke-linecap="round"
 												/>
 
@@ -2418,8 +2418,8 @@
 													x2={warpDisplayedImageRect.width}
 													y2={warpDisplayedImageRect.height - bottomPx}
 													stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / sourceViewZoom}
-													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-width={2 / warpViewZoom}
+													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
 													stroke-linecap="round"
 												/>
 
@@ -2429,8 +2429,8 @@
 													x2={leftPx}
 													y2={warpDisplayedImageRect.height}
 													stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / sourceViewZoom}
-													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-width={2 / warpViewZoom}
+													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
 													stroke-linecap="round"
 												/>
 
@@ -2440,8 +2440,8 @@
 													x2={warpDisplayedImageRect.width - rightPx}
 													y2={warpDisplayedImageRect.height}
 													stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / sourceViewZoom}
-													stroke-dasharray={`${10 / sourceViewZoom} ${8 / sourceViewZoom}`}
+													stroke-width={2 / warpViewZoom}
+													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
 													stroke-linecap="round"
 												/>
 											</svg>
