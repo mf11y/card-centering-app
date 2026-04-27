@@ -4,18 +4,12 @@
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
 	import type { Quad } from '../lib/card-centering/geometry';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
-	import {
-		PAGE_ZOOM_VALUES,
-		ZOOM_VALUES,
-		ALERT_THRESHOLD,
-		cornerOverlayItems
-	} from '../lib/card-centering/constants';
+	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
 	import { formatPct } from '../lib/card-centering/format';
 	import { inferCorners, getSegmentationMaskUrl } from '../lib/card-centering/api';
-	import { computeZoomMetrics, getZoomStyle } from '../lib/card-centering/view';
+	import { computeZoomMetrics } from '../lib/card-centering/view';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
 
-	import { fade } from 'svelte/transition';
 	import { createInputController, type Direction } from '../lib/card-centering/controller';
 	import { moveCornerValue, applyGuideDirection } from '$lib/card-centering/movement';
 	import {
@@ -129,15 +123,6 @@
 	 * - sourceImageVisible: delays image fade-in until layout is ready.
 	 */
 
-	let autoZoomToCorners = $state(false);
-	let frozenZoom = $state<{
-		scale: number;
-		centerXNorm: number;
-		centerYNorm: number;
-	} | null>(null);
-	let frozenStage = $state<{ width: number; height: number } | null>(null);
-	let zoomLevel = $state(1);
-	let pageZoom = $state(1);
 	let sourceViewZoom = $state(1);
 	let sourceViewPan = $state({ x: 0, y: 0 });
 
@@ -146,7 +131,6 @@
 
 	let isViewPanning = false;
 	let viewPanStart = { pointerX: 0, pointerY: 0, panX: 0, panY: 0 };
-	let animateSourceZoom = $state(false);
 	let sourceImageVisible = $state(false);
 
 	/**
@@ -182,6 +166,7 @@
 	let pendingDetection = $state(false);
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
+	let actionRowBusy = $state(false);
 
 	/**
 	 * Small UI/helper utilities used by the page.
@@ -208,16 +193,6 @@
 	}
 	function imageYToPercent(y: number) {
 		return `${(y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`;
-	}
-	function getZoomStyleLocal() {
-		return getZoomStyle({
-			frozenZoom,
-			displayedImageRect,
-			autoZoomToCorners,
-			naturalWidth: imageEl?.naturalWidth || 1,
-			naturalHeight: imageEl?.naturalHeight || 1,
-			corners
-		});
 	}
 	function markGuideAdjusted(guideKey: GuideKey) {
 		if (guideKey === 'top' || guideKey === 'bottom') {
@@ -481,15 +456,6 @@
 
 		const imageAspect = naturalWidth / naturalHeight;
 
-		if (frozenStage) {
-			const width = frozenStage.width;
-			const height = frozenStage.height;
-			const x = (containerWidth - width) / 2;
-			const y = (containerHeight - height) / 2;
-			displayedImageRect = { x, y, width, height };
-			return;
-		}
-
 		const maxStageWidth = Math.min(containerWidth, 720);
 		const maxStageHeight = Math.min(containerHeight, 960);
 
@@ -533,21 +499,6 @@
 	 * - zoomPageIn: increases the overall page zoom by one preset step.
 	 * - zoomPageOut: decreases the overall page zoom by one preset step.
 	 */
-	function applyPageZoom(direction: 1 | -1) {
-		const currentIndex = PAGE_ZOOM_VALUES.findIndex((v) => Math.abs(v - pageZoom) < 0.001);
-		const safeIndex = currentIndex === -1 ? PAGE_ZOOM_VALUES.indexOf(1) : currentIndex;
-
-		const nextIndex = Math.max(0, Math.min(PAGE_ZOOM_VALUES.length - 1, safeIndex + direction));
-
-		pageZoom = PAGE_ZOOM_VALUES[nextIndex];
-	}
-	function zoomPageIn() {
-		applyPageZoom(1);
-	}
-
-	function zoomPageOut() {
-		applyPageZoom(-1);
-	}
 
 	const IMAGE_VIEW_ZOOM_MIN = 1;
 	const IMAGE_VIEW_ZOOM_MAX = 4;
@@ -755,17 +706,13 @@
 		warpedImageUrl = '';
 		segmentationMaskUrl = '';
 
-		frozenZoom = null;
-		frozenStage = null;
-		autoZoomToCorners = false;
-		zoomLevel = 1;
 		sourceViewZoom = 1;
 		sourceViewPan = { x: 0, y: 0 };
 
 		warpViewZoom = 1;
 		warpViewPan = { x: 0, y: 0 };
+
 		imageReadyForControls = false;
-		animateSourceZoom = false;
 		sourceImageVisible = false;
 	}
 
@@ -799,12 +746,12 @@
 
 		imageFile = null;
 		imageUrl = '';
+		actionRowBusy = false;
 
 		resetDerivedImageState();
 		resetAdjustmentState();
 
 		pendingDetection = false;
-		pageZoom = 1;
 		stepSize = 0.1;
 		isDark = true;
 
@@ -815,11 +762,34 @@
 
 		revokeWorkingUrls();
 
+		actionRowBusy = true;
+
 		imageFile = file;
 		imageUrl = URL.createObjectURL(file);
 
 		resetDerivedImageState();
 		pendingDetection = true;
+	}
+	async function loadTryMeImage() {
+		if (isSegmenting || imageUrl) return;
+
+		try {
+			const response = await fetch('/tryme.webp');
+
+			if (!response.ok) {
+				throw new Error('Could not load tryme.webp');
+			}
+
+			const blob = await response.blob();
+
+			const file = new File([blob], 'tryme.webp', {
+				type: blob.type || 'image/webp'
+			});
+
+			loadFile(file);
+		} catch (error) {
+			console.error('Failed to load Try Me image:', error);
+		}
 	}
 	function handleFileChange(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -942,12 +912,6 @@
 		corners = mapped;
 		runWarpPreview();
 	}
-	function resetSourceZoomState() {
-		autoZoomToCorners = false;
-		frozenZoom = null;
-		frozenStage = null;
-		animateSourceZoom = false;
-	}
 	async function runSegmentationInBrowser() {
 		if (!imageFile || !imageEl) return;
 
@@ -977,8 +941,6 @@
 
 			applyReturnedCorners(result.corners);
 
-			resetSourceZoomState();
-
 			if (sourceViewZoom === 1) {
 				await tick();
 
@@ -991,6 +953,10 @@
 		} finally {
 			isSegmenting = false;
 			imageReadyForControls = true;
+
+			setTimeout(() => {
+				actionRowBusy = false;
+			}, 350);
 		}
 	}
 	async function handleSourceImageLoad() {
@@ -1008,6 +974,10 @@
 
 		if (pendingDetection) {
 			pendingDetection = false;
+
+			// Let the Loading/Running button transition start before segmentation work begins.
+			await tick();
+
 			runSegmentationInBrowser();
 		}
 	}
@@ -1279,13 +1249,7 @@
 	});
 </script>
 
-<div
-	class="origin-top-left w-full overflow-x-hidden"
-	style={`
-		transform: scale(${pageZoom});
-		width: 100%;
-	`}
->
+<div class="w-full overflow-x-hidden">
 	<div
 		class="min-h-screen bg-zinc-950
 		text-zinc-100 select-none"
@@ -1314,31 +1278,55 @@
 					<div class="p-5">
 						<div class="mb-5 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4">
 							<div class="space-y-4">
-								<!-- row 1: one full-width action button -->
+								<!-- row 1: Try Me + Upload before image, Reset after image -->
 								<div>
-									<button
-										class={`w-full rounded-lg border px-3 py-2.5 text-sm transition ${
-											isSegmenting
-												? 'border-blue-400 bg-zinc-800 text-blue-300 animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.7)]'
-												: !imageUrl
-													? 'border-cyan-400 bg-zinc-900 text-cyan-300 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.5)] hover:bg-zinc-800'
-													: 'border-zinc-700 bg-zinc-950 hover:bg-zinc-800'
-										}`}
-										type="button"
-										onclick={() => {
-											if (isSegmenting) return;
+									{#if !imageUrl || actionRowBusy}
+										<div
+											class="grid transition-[grid-template-columns,gap] duration-350 ease-out"
+											style={`grid-template-columns: ${actionRowBusy ? '0fr 1fr' : '1fr 3fr'}; gap: ${
+												actionRowBusy ? '0rem' : '0.75rem'
+											};`}
+										>
+											<div class="min-w-0 overflow-hidden">
+												<button
+													class={`w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 transition-[opacity,padding,border-width] duration-300 ease-out hover:border-cyan-400 hover:bg-zinc-800 hover:text-cyan-300 ${
+														actionRowBusy
+															? 'pointer-events-none border-0 px-0 opacity-0'
+															: 'opacity-100'
+													}`}
+													type="button"
+													onclick={loadTryMeImage}
+													disabled={actionRowBusy}
+												>
+													<span class="whitespace-nowrap">Try Me</span>
+												</button>
+											</div>
 
-											if (!imageUrl) {
-												document.getElementById('image-upload')?.click();
-												return;
-											}
-
-											resetHandler();
-										}}
-										disabled={isSegmenting}
-									>
-										{isSegmenting ? 'Running...' : !imageUrl ? 'Upload' : 'Reset'}
-									</button>
+											<button
+												class={`min-w-0 rounded-lg border px-3 py-2.5 text-sm transition-[box-shadow,background-color,border-color,color] ${
+													actionRowBusy
+														? 'border-blue-400 bg-zinc-800 text-blue-300 animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.7)]'
+														: 'border-cyan-400 bg-zinc-900 text-cyan-300 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.5)] hover:bg-zinc-800'
+												}`}
+												type="button"
+												onclick={() => {
+													if (actionRowBusy) return;
+													document.getElementById('image-upload')?.click();
+												}}
+												disabled={actionRowBusy}
+											>
+												{isSegmenting ? 'Running...' : !imageUrl ? 'Upload' : 'Reset'}
+											</button>
+										</div>
+									{:else}
+										<button
+											class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm transition hover:bg-zinc-800"
+											type="button"
+											onclick={resetHandler}
+										>
+											Reset
+										</button>
+									{/if}
 								</div>
 
 								<!-- row 2: step size -->
@@ -1364,31 +1352,6 @@
 										<option value={0.05}>0.05%</option>
 										<option value={0.1}>.1%</option>
 									</select>
-								</div>
-
-								<!-- row 3: zoom controls -->
-								<div class="grid grid-cols-3 gap-3">
-									<button
-										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
-										onclick={zoomPageOut}
-										type="button"
-									>
-										-
-									</button>
-
-									<div
-										class="flex items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300"
-									>
-										{Math.round(pageZoom * 100)}%
-									</div>
-
-									<button
-										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm hover:bg-zinc-800"
-										onclick={zoomPageIn}
-										type="button"
-									>
-										+
-									</button>
 								</div>
 							</div>
 						</div>
