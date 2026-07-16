@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from typing import Optional
 
 
 def order_points(pts: np.ndarray) -> np.ndarray:
@@ -46,6 +47,107 @@ def keep_large_components(mask: np.ndarray, min_area: int = 400, keep_n: int = 1
         out[labels == label] = 255
 
     return out
+
+
+def clean_segmentation_mask(mask: np.ndarray, min_area: int = 400) -> np.ndarray:
+    mask = (mask > 0).astype(np.uint8) * 255
+
+    kernel = np.ones((7, 7), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    return keep_large_components(mask, min_area=min_area, keep_n=1)
+
+
+def sample_mask_edge_points(
+    mask: np.ndarray,
+    p0: np.ndarray,
+    p1: np.ndarray,
+    max_dist: int = 32,
+    max_extend: int = 16,
+    min_count: int = 8,
+) -> Optional[np.ndarray]:
+    pts = cv2.findNonZero(mask)
+    if pts is None:
+        return None
+
+    pts = pts.reshape(-1, 2).astype(np.float32)
+    line_vec = p1 - p0
+    length = np.linalg.norm(line_vec)
+    if length < 1e-6:
+        return None
+
+    v = line_vec / length
+    rel = pts - p0
+    proj = rel.dot(v)
+    closest = p0 + np.outer(proj, v)
+    dist = np.linalg.norm(pts - closest, axis=1)
+
+    mask_sel = (
+        (dist <= max_dist)
+        & (proj >= -max_extend)
+        & (proj <= length + max_extend)
+    )
+
+    selected = pts[mask_sel]
+    if len(selected) < min_count:
+        alt_max_dist = max_dist * 2
+        alt_max_extend = max_extend * 2
+        mask_sel = (
+            (dist <= alt_max_dist)
+            & (proj >= -alt_max_extend)
+            & (proj <= length + alt_max_extend)
+        )
+        selected = pts[mask_sel]
+
+    return selected if len(selected) >= min_count else None
+
+
+def refine_quad_from_edges(
+    seg_mask: np.ndarray,
+    init_quad: np.ndarray,
+    edge_width: int = 32,
+    max_extend: int = 16,
+) -> Optional[np.ndarray]:
+    if seg_mask is None or init_quad is None:
+        return None
+
+    mask = clean_segmentation_mask(seg_mask)
+    quad = order_points(init_quad.astype(np.float32))
+    lines = []
+
+    for i in range(4):
+        p0 = quad[i]
+        p1 = quad[(i + 1) % 4]
+        pts = sample_mask_edge_points(mask, p0, p1, edge_width, max_extend)
+        if pts is None:
+            pts = sample_mask_edge_points(mask, p0, p1, edge_width * 2, max_extend * 2)
+            if pts is None:
+                return None
+
+        p, v = line_from_points_fitline(pts)
+        if p is None:
+            return None
+
+        lines.append((p, v))
+
+    top_p, top_v = lines[0]
+    right_p, right_v = lines[1]
+    bot_p, bot_v = lines[2]
+    left_p, left_v = lines[3]
+
+    tl = intersect_lines(top_p, top_v, left_p, left_v)
+    tr = intersect_lines(top_p, top_v, right_p, right_v)
+    br = intersect_lines(bot_p, bot_v, right_p, right_v)
+    bl = intersect_lines(bot_p, bot_v, left_p, left_v)
+
+    if any(x is None for x in [tl, tr, br, bl]):
+        return None
+
+    refined = np.array([tl, tr, br, bl], dtype=np.float32)
+    refined = order_points(refined)
+    refined = clamp_quad(refined, seg_mask.shape[:2])
+    return refined
 
 
 def line_from_points_fitline(points: np.ndarray):
@@ -200,35 +302,12 @@ def mask_to_best_fit_quad(mask: np.ndarray, expand: float = 1.005):
     if mask is None:
         return None
 
-    mask = mask.astype(np.uint8)
-    if mask.max() <= 1:
-        mask = mask * 255
+    mask = clean_segmentation_mask(mask, min_area=400)
 
-    # keep dominant blob only
-    mask = keep_large_components(mask, min_area=400, keep_n=1)
-
-    # remove tiny whiskers / specks
-    mask = cv2.morphologyEx(
-        mask,
-        cv2.MORPH_OPEN,
-        np.ones((3, 3), np.uint8),
-        iterations=1
-    )
-
-    # smooth slightly
+    # smooth slightly and reconnect thin gaps while keeping the main blob
     mask = cv2.GaussianBlur(mask, (5, 5), 0)
     _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
-
-    # small close helps bridge tiny gaps in the contour
-    mask = cv2.morphologyEx(
-        mask,
-        cv2.MORPH_CLOSE,
-        np.ones((3, 3), np.uint8),
-        iterations=1
-    )
-
-    # keep main blob again after cleanup
-    mask = keep_large_components(mask, min_area=400, keep_n=1)
+    mask = clean_segmentation_mask(mask, min_area=400)
 
     cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not cnts:
@@ -252,12 +331,23 @@ def mask_to_best_fit_quad(mask: np.ndarray, expand: float = 1.005):
     if quad is None:
         hull_i = hull_pts.reshape(-1, 1, 2).astype(np.float32)
         peri = cv2.arcLength(hull_i, True)
-        for eps_scale in [0.005, 0.008, 0.01, 0.015, 0.02, 0.03]:
+        for eps_scale in [0.005, 0.008, 0.01, 0.015, 0.02, 0.03, 0.05]:
             approx = cv2.approxPolyDP(hull_i, eps_scale * peri, True)
             if len(approx) == 4:
                 quad = approx.reshape(4, 2).astype(np.float32)
                 quad = order_points(quad)
                 break
+
+    # fallback: use an oriented bounding box when an explicit quad cannot be fit
+    if quad is None:
+        rect = cv2.minAreaRect(cnt)
+        quad = cv2.boxPoints(rect).astype(np.float32)
+        quad = order_points(quad)
+
+    # stronger cleanup for stray pixels: expand slightly to include missing corners,
+    # but leave the final boundary check to the refinement stage.
+    quad = expand_quad(quad, scale=expand)
+    return quad.astype(np.float32)
 
     # final fallback: rotated rectangle
     if quad is None:
@@ -356,6 +446,18 @@ def refine_quad_local_search(
     best_quad = order_points(quad0)
     best_quad = clamp_quad(best_quad, work_shape)
     best_score = score_candidate_quad(work_mask, best_quad, work_shape)
+
+    edge_refined = refine_quad_from_edges(
+        work_mask,
+        best_quad,
+        edge_width=max(12, int(round(max(work_shape) * 0.03))),
+        max_extend=max(8, int(round(max(work_shape) * 0.02))),
+    )
+    if edge_refined is not None:
+        edge_score = score_candidate_quad(work_mask, edge_refined, work_shape)
+        if edge_score > best_score:
+            best_score = edge_score
+            best_quad = edge_refined
 
     # optionally scale step sizes too so they behave similarly across resolutions
     scaled_steps = tuple(max(1, int(round(step * scale))) for step in steps) if scale < 1.0 else steps
