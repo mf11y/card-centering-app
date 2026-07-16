@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
 from app.services.inference import run_inference_service, decode_image
 from app.services.warp import warp_from_corners
@@ -10,6 +11,7 @@ import cv2
 import numpy as np
 import json
 import base64
+import asyncio
 
 import logging
 
@@ -17,6 +19,19 @@ logger = logging.getLogger("uvicorn.error")
 
 
 app = FastAPI(title="Card API")
+
+# Each Uvicorn worker owns one model instance. Keep inference serialized within
+# that worker while running the CPU-heavy pipeline outside the event loop.
+inference_slot = asyncio.Semaphore(1)
+
+
+async def run_inference(contents: bytes, make_debug: bool = False):
+    async with inference_slot:
+        return await run_in_threadpool(
+            run_inference_service,
+            contents,
+            make_debug,
+        )
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,7 +49,7 @@ def health():
 
 async def infer_json(file: UploadFile = File(...)):
     contents = await file.read()
-    result = run_inference_service(contents)
+    result = await run_inference(contents)
 
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
@@ -82,7 +97,7 @@ async def infer_json(file: UploadFile = File(...)):
 @app.post("/api/infer-image")
 async def infer_image(file: UploadFile = File(...)):
     contents = await file.read()
-    result = run_inference_service(contents)
+    result = await run_inference(contents, make_debug=True)
 
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
@@ -110,7 +125,7 @@ async def infer_image(file: UploadFile = File(...)):
 @app.post("/api/warp")
 async def warp(file: UploadFile = File(...)):
     contents = await file.read()
-    result = run_inference_service(contents)
+    result = await run_inference(contents)
 
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))

@@ -9,10 +9,10 @@ def decode_image(image_bytes: bytes):
     return img
 
 
-def run_inference_service(image_bytes: bytes):
+def run_inference_service(image_bytes: bytes, make_debug: bool = False):
     img = decode_image(image_bytes)
     if img is None:
         return {"ok": False, "error": "Could not decode image"}
 
-    result = run_pipeline(img)
+    result = run_pipeline(img, make_debug=make_debug)
     return result
