@@ -1122,13 +1122,16 @@ const inputController = createInputController({
 	 */
 
 	function handleSourceTrapKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Tab' || !sourceFocusTrapEl || !imageUrl) return;
-		if (!sourceFocusTrapEl.contains(event.target as Node)) return;
+		if (event.key !== 'Tab' || !imageUrl) return;
+
+		const panel = event.currentTarget as HTMLElement;
+		const target = event.target as HTMLElement;
+		if (target.closest('[data-focus-trap]') !== panel) return;
 
 		const cornerOrder = ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as const;
 		const focusable = cornerOrder
 			.map((cornerKey) =>
-				sourceFocusTrapEl?.querySelector<HTMLButtonElement>(
+				panel.querySelector<HTMLButtonElement>(
 					`button[data-source-corner="true"][data-corner-key="${cornerKey}"]`
 				)
 			)
@@ -1152,6 +1155,7 @@ const inputController = createInputController({
 
 		event.preventDefault();
 		event.stopPropagation();
+		event.stopImmediatePropagation();
 		nextEl.focus();
 
 		const cornerKey = nextEl.dataset.cornerKey as keyof typeof corners | undefined;
@@ -1161,13 +1165,16 @@ const inputController = createInputController({
 	}
 
 	function handleWarpTrapKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Tab' || !warpContainerEl || !warpedImageUrl) return;
-		if (!warpContainerEl.contains(event.target as Node)) return;
+		if (event.key !== 'Tab' || !warpedImageUrl) return;
+
+		const panel = event.currentTarget as HTMLElement;
+		const target = event.target as HTMLElement;
+		if (target.closest('[data-focus-trap]') !== panel) return;
 
 		const guideOrder: GuideKey[] = ['top', 'right', 'bottom', 'left'];
 		const focusable = guideOrder
 			.map((guideKey) =>
-				warpContainerEl?.querySelector<HTMLButtonElement>(
+				panel.querySelector<HTMLButtonElement>(
 					`button[data-warp-guide="true"][data-guide-key="${guideKey}"]`
 				)
 			)
@@ -1191,6 +1198,7 @@ const inputController = createInputController({
 
 		event.preventDefault();
 		event.stopPropagation();
+		event.stopImmediatePropagation();
 		nextEl.focus();
 
 		const guideKey = nextEl.dataset.guideKey as GuideKey | undefined;
@@ -2057,7 +2065,12 @@ const inputController = createInputController({
 										role="button"
 										tabindex="0"
 										bind:this={sourceFocusTrapEl}
+										data-focus-trap="source"
 										onclick={clearActiveSelection}
+										onpointerdown={(e) => {
+											if ((e.target as HTMLElement).closest('button')) return;
+											e.currentTarget.focus({ preventScroll: true });
+										}}
 										onkeydown={(e) => {
 											handleSourceTrapKeydown(e);
 
@@ -2167,6 +2180,7 @@ const inputController = createInputController({
 																e.preventDefault();
 
 																selectTarget({ type: 'corner', key: corner.key });
+																e.currentTarget.focus({ preventScroll: true });
 																draggingCorner = corner.key;
 																didDragCorner = false;
 
@@ -2186,7 +2200,7 @@ const inputController = createInputController({
 															<div
 																class={`h-7 w-7 transition ${
 																	activeCorner === corner.key
-																		? '[filter:drop-shadow(0_0_6px_rgba(34,211,238,0.9)) drop-shadow(0_0_12px_rgba(34,211,238,0.7))] animate-pulse text-red-400'
+																		? 'arrow-breathe text-red-400'
 																		: 'text-cyan-400 hover:text-green-300'
 																}`}
 															>
@@ -2790,9 +2804,11 @@ const inputController = createInputController({
 								aria-label="Clear active selection"
 								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950 focus:outline-none"
 								bind:this={warpContainerEl}
+								data-focus-trap="warp"
 								use:ctrlWheelZoom={'warp'}
 								onpointerdown={(e) => {
 									if ((e.target as HTMLElement).closest('button')) return;
+									e.currentTarget.focus({ preventScroll: true });
 									clearActiveSelection();
 								}}
 								onkeydown={(e) => {
@@ -2885,6 +2901,7 @@ const inputController = createInputController({
 													onpointerdown={(e) => {
 														e.stopPropagation();
 														startGuideDrag(e, 'top');
+														e.currentTarget.focus({ preventScroll: true });
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
@@ -2907,6 +2924,7 @@ const inputController = createInputController({
 													onpointerdown={(e) => {
 														e.stopPropagation();
 														startGuideDrag(e, 'bottom');
+														e.currentTarget.focus({ preventScroll: true });
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
@@ -2929,6 +2947,7 @@ const inputController = createInputController({
 													onpointerdown={(e) => {
 														e.stopPropagation();
 														startGuideDrag(e, 'left');
+														e.currentTarget.focus({ preventScroll: true });
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
@@ -2951,6 +2970,7 @@ const inputController = createInputController({
 													onpointerdown={(e) => {
 														e.stopPropagation();
 														startGuideDrag(e, 'right');
+														e.currentTarget.focus({ preventScroll: true });
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
@@ -2966,18 +2986,20 @@ const inputController = createInputController({
 														class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 translate-y-[40%] items-center justify-center"
 														style={`top: ${topPx}px;`}
 													>
-														<svg
-															viewBox="0 0 80 80"
-															class="h-16 w-16 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="4.5"
-															stroke-linecap="round"
-															stroke-linejoin="round"
-														>
-															<path d="M40 66V18" />
-															<path d="M22 36L40 18L58 36" />
-														</svg>
+														<div class="arrow-breathe">
+															<svg
+																viewBox="0 0 80 80"
+																class="h-16 w-16 text-red-400"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="4.5"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path d="M40 66V18" />
+																<path d="M22 36L40 18L58 36" />
+															</svg>
+														</div>
 													</div>
 												{/if}
 
@@ -2986,18 +3008,20 @@ const inputController = createInputController({
 														class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-[140%] items-center justify-center"
 														style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
 													>
-														<svg
-															viewBox="0 0 80 80"
-															class="h-16 w-16 rotate-180 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="4.5"
-															stroke-linecap="round"
-															stroke-linejoin="round"
-														>
-															<path d="M40 66V18" />
-															<path d="M22 36L40 18L58 36" />
-														</svg>
+														<div class="arrow-breathe">
+															<svg
+																viewBox="0 0 80 80"
+																class="h-16 w-16 rotate-180 text-red-400"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="4.5"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path d="M40 66V18" />
+																<path d="M22 36L40 18L58 36" />
+															</svg>
+														</div>
 													</div>
 												{/if}
 
@@ -3006,18 +3030,20 @@ const inputController = createInputController({
 														class="pointer-events-none absolute top-1/2 flex translate-x-[40%] -translate-y-1/2 items-center justify-center"
 														style={`left: ${leftPx}px;`}
 													>
-														<svg
-															viewBox="0 0 80 80"
-															class="h-16 w-16 -rotate-90 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="4.5"
-															stroke-linecap="round"
-															stroke-linejoin="round"
-														>
-															<path d="M40 66V18" />
-															<path d="M22 36L40 18L58 36" />
-														</svg>
+														<div class="arrow-breathe">
+															<svg
+																viewBox="0 0 80 80"
+																class="h-16 w-16 -rotate-90 text-red-400"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="4.5"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path d="M40 66V18" />
+																<path d="M22 36L40 18L58 36" />
+															</svg>
+														</div>
 													</div>
 												{/if}
 
@@ -3026,18 +3052,20 @@ const inputController = createInputController({
 														class="pointer-events-none absolute top-1/2 flex -translate-x-[140%] -translate-y-1/2 items-center justify-center"
 														style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
 													>
-														<svg
-															viewBox="0 0 80 80"
-															class="h-16 w-16 rotate-90 text-red-400 [filter:drop-shadow(0_0_6px_rgba(248,113,113,0.95))_drop-shadow(0_0_14px_rgba(248,113,113,0.75))]"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="4.5"
-															stroke-linecap="round"
-															stroke-linejoin="round"
-														>
-															<path d="M40 66V18" />
-															<path d="M22 36L40 18L58 36" />
-														</svg>
+														<div class="arrow-breathe">
+															<svg
+																viewBox="0 0 80 80"
+																class="h-16 w-16 rotate-90 text-red-400"
+																fill="none"
+																stroke="currentColor"
+																stroke-width="4.5"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															>
+																<path d="M40 66V18" />
+																<path d="M22 36L40 18L58 36" />
+															</svg>
+														</div>
 													</div>
 												{/if}
 											</div>
@@ -3349,3 +3377,36 @@ const inputController = createInputController({
 		</footer>
 	</div>
 </div>
+
+<style>
+	:global(.arrow-breathe) {
+		animation: arrow-breathe 1.4s ease-in-out infinite !important;
+		transform-origin: center;
+		will-change: transform, filter, opacity;
+	}
+
+	@keyframes -global-arrow-breathe {
+		0%,
+		100% {
+			transform: scale(0.82);
+			opacity: 0.82;
+			filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.7))
+				drop-shadow(0 0 8px rgba(248, 113, 113, 0.5));
+		}
+
+		50% {
+			transform: scale(1.22);
+			opacity: 1;
+			filter: drop-shadow(0 0 8px rgba(248, 113, 113, 1))
+				drop-shadow(0 0 18px rgba(248, 113, 113, 0.9));
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(.arrow-breathe) {
+			animation: none;
+			transform: scale(1);
+			opacity: 1;
+		}
+	}
+</style>
