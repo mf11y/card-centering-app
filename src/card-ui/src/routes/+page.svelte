@@ -36,11 +36,13 @@ const inputController = createInputController({
 	 * - NUDGE_WARP_DELAY: debounce delay before rerendering the warp preview after nudges.
 	 * - CORNER_PATCH_RADIUS: source-image pixel radius sampled around the selected corner.
 	 * - CORNER_ZOOM_SIZE: rendered canvas size for the corner zoom preview.
+	 * - SOURCE_OVERLAY_PADDING: solid canvas margin reserved around the image for corner controls.
 	 */
 
 	const NUDGE_WARP_DELAY = 150;
 	const CORNER_PATCH_RADIUS = 150;
 	const CORNER_ZOOM_SIZE = 150;
+	const SOURCE_OVERLAY_PADDING = 28;
 
 	/**
 	 * Source image / segmentation state.
@@ -498,8 +500,14 @@ const inputController = createInputController({
 
 		const imageAspect = naturalWidth / naturalHeight;
 
-		const maxStageWidth = Math.min(containerWidth, 720);
-		const maxStageHeight = Math.min(containerHeight, 960);
+		const maxStageWidth = Math.min(
+			Math.max(1, containerWidth - SOURCE_OVERLAY_PADDING * 2),
+			720
+		);
+		const maxStageHeight = Math.min(
+			Math.max(1, containerHeight - SOURCE_OVERLAY_PADDING * 2),
+			960
+		);
 
 		let width = maxStageWidth;
 		let height = width / imageAspect;
@@ -2069,7 +2077,7 @@ const inputController = createInputController({
 
 											<!-- fixed image plane -->
 											<div
-												class="absolute overflow-hidden"
+												class="absolute overflow-visible"
 												style={`
 														left: ${displayedImageRect.x}px;
 														top: ${displayedImageRect.y}px;
@@ -2138,8 +2146,9 @@ const inputController = createInputController({
 															opacity="1"
 														/>
 													</svg>
-													{#each cornerOverlayItems as corner}
-														<button
+													{#if warpedImageUrl && !isSegmenting}
+														{#each cornerOverlayItems as corner}
+															<button
 															type="button"
 															aria-label={`Toggle ${corner.key} arrow control`}
 															aria-pressed={activeCorner === corner.key}
@@ -2202,9 +2211,10 @@ const inputController = createInputController({
 																	<path d="M19 19L5 5" />
 																	<path d="M5 11V5H11" />
 																</svg>
-															</div></button
-														>
-													{/each}
+																</div></button
+															>
+														{/each}
+													{/if}
 												</div>
 											</div>
 										</div>
