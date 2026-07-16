@@ -4,6 +4,8 @@ type BinaryMask = {
 	width: number;
 	height: number;
 	data: Uint8Array;
+	boundaryDistance: Float32Array;
+	area: number;
 	scaleX: number;
 	scaleY: number;
 };
@@ -11,6 +13,12 @@ type BinaryMask = {
 export type FittedMaskQuad = {
 	quad: Quad;
 	score: number;
+	metrics: {
+		iou: number;
+		falsePositiveRate: number;
+		falseNegativeRate: number;
+		meanEdgeDistance: number;
+	};
 };
 
 function cross(o: Point, a: Point, b: Point) {
@@ -138,7 +146,63 @@ function pointInQuad(x: number, y: number, quad: Quad) {
 	return true;
 }
 
-function scoreQuad(mask: BinaryMask, quad: Quad) {
+function polygonArea(quad: Quad) {
+	let area = 0;
+	for (let i = 0; i < 4; i++) {
+		const a = quad[i];
+		const b = quad[(i + 1) % 4];
+		area += a.x * b.y - b.x * a.y;
+	}
+	return Math.abs(area) / 2;
+}
+
+function isValidQuad(quad: Quad, width: number, height: number) {
+	if (quad.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
+	if (polygonArea(quad) < Math.max(100, width * height * 0.005)) return false;
+
+	let orientation = 0;
+	for (let i = 0; i < 4; i++) {
+		const a = quad[i];
+		const b = quad[(i + 1) % 4];
+		const c = quad[(i + 2) % 4];
+		const sideLength = Math.hypot(b.x - a.x, b.y - a.y);
+		if (sideLength < 8) return false;
+
+		const turn = cross(a, b, c);
+		if (Math.abs(turn) < 1e-3) return false;
+		const sign = Math.sign(turn);
+		if (orientation && sign !== orientation) return false;
+		orientation = sign;
+	}
+
+	return true;
+}
+
+function sampleEdgeDistance(mask: BinaryMask, quad: Quad) {
+	let total = 0;
+	let samples = 0;
+
+	for (let edge = 0; edge < 4; edge++) {
+		const a = quad[edge];
+		const b = quad[(edge + 1) % 4];
+		const length = Math.hypot(b.x - a.x, b.y - a.y);
+		const count = Math.max(2, Math.ceil(length / 2));
+
+		for (let i = 0; i <= count; i++) {
+			const t = i / count;
+			const x = Math.max(0, Math.min(mask.width - 1, Math.round(a.x + (b.x - a.x) * t)));
+			const y = Math.max(0, Math.min(mask.height - 1, Math.round(a.y + (b.y - a.y) * t)));
+			total += mask.boundaryDistance[y * mask.width + x];
+			samples++;
+		}
+	}
+
+	return total / Math.max(samples, 1);
+}
+
+function evaluateQuad(mask: BinaryMask, quad: Quad) {
+	if (!isValidQuad(quad, mask.width, mask.height)) return null;
+
 	const minX = Math.max(0, Math.floor(Math.min(...quad.map((p) => p.x))));
 	const maxX = Math.min(mask.width - 1, Math.ceil(Math.max(...quad.map((p) => p.x))));
 	const minY = Math.max(0, Math.floor(Math.min(...quad.map((p) => p.y))));
@@ -154,9 +218,23 @@ function scoreQuad(mask: BinaryMask, quad: Quad) {
 		}
 	}
 
-	let maskArea = 0;
-	for (const value of mask.data) maskArea += value;
-	return (2 * intersection - 0.7 * candidateArea - 0.3 * maskArea) / Math.max(maskArea, 1);
+	const falsePositive = candidateArea - intersection;
+	const falseNegative = mask.area - intersection;
+	const union = candidateArea + mask.area - intersection;
+	const iou = intersection / Math.max(union, 1);
+	const falsePositiveRate = falsePositive / Math.max(candidateArea, 1);
+	const falseNegativeRate = falseNegative / Math.max(mask.area, 1);
+	const meanEdgeDistance = sampleEdgeDistance(mask, quad);
+	const normalizedEdgeDistance = meanEdgeDistance / Math.max(mask.width, mask.height);
+
+	return {
+		score:
+			iou -
+			0.35 * falsePositiveRate -
+			0.15 * falseNegativeRate -
+			2.5 * normalizedEdgeDistance,
+		metrics: { iou, falsePositiveRate, falseNegativeRate, meanEdgeDistance }
+	};
 }
 
 function clampQuad(quad: Quad, width: number, height: number): Quad {
@@ -170,13 +248,19 @@ function clampQuad(quad: Quad, width: number, height: number): Quad {
 
 function refineQuad(mask: BinaryMask, initial: Quad) {
 	let best = clampQuad(initial, mask.width, mask.height);
-	let bestScore = scoreQuad(mask, best);
+	let bestEvaluation = evaluateQuad(mask, best);
+	if (!bestEvaluation) throw new Error('Initial quadrilateral is invalid');
 	const steps = [8, 4, 2, 1];
 
 	for (const step of steps) {
 		let improved = true;
-		while (improved) {
+		let passes = 0;
+		while (improved && passes < 20) {
 			improved = false;
+			passes++;
+			const candidates: Quad[] = [];
+
+			// Move individual corners.
 			for (let corner = 0; corner < 4; corner++) {
 				for (const [dx, dy] of [
 					[-step, 0],
@@ -187,19 +271,110 @@ function refineQuad(mask: BinaryMask, initial: Quad) {
 					const candidate = best.map((point) => ({ ...point })) as Quad;
 					candidate[corner].x += dx;
 					candidate[corner].y += dy;
-					const ordered = clampQuad(candidate, mask.width, mask.height);
-					const score = scoreQuad(mask, ordered);
-					if (score > bestScore) {
-						best = ordered;
-						bestScore = score;
-						improved = true;
+					candidates.push(candidate);
+				}
+			}
+
+			// Move complete edges along their normal, preserving straighter sides.
+			for (let edge = 0; edge < 4; edge++) {
+				const a = best[edge];
+				const b = best[(edge + 1) % 4];
+				const length = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1);
+				const normal = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length };
+				for (const direction of [-1, 1]) {
+					const candidate = best.map((point) => ({ ...point })) as Quad;
+					for (const corner of [edge, (edge + 1) % 4]) {
+						candidate[corner].x += normal.x * step * direction;
+						candidate[corner].y += normal.y * step * direction;
 					}
+					candidates.push(candidate);
+				}
+			}
+
+			// Translate or uniformly expand/shrink the whole quad.
+			for (const [dx, dy] of [
+				[-step, 0],
+				[step, 0],
+				[0, -step],
+				[0, step]
+			]) {
+				candidates.push(best.map((point) => ({ x: point.x + dx, y: point.y + dy })) as Quad);
+			}
+			const center = best.reduce(
+				(acc, point) => ({ x: acc.x + point.x / 4, y: acc.y + point.y / 4 }),
+				{ x: 0, y: 0 }
+			);
+			for (const direction of [-1, 1]) {
+				const scale = 1 + (direction * step) / Math.max(mask.width, mask.height);
+				candidates.push(
+					best.map((point) => ({
+						x: center.x + (point.x - center.x) * scale,
+						y: center.y + (point.y - center.y) * scale
+					})) as Quad
+				);
+			}
+
+			for (const candidate of candidates) {
+				const ordered = clampQuad(candidate, mask.width, mask.height);
+				const evaluation = evaluateQuad(mask, ordered);
+				if (evaluation && evaluation.score > bestEvaluation.score + 1e-7) {
+					best = ordered;
+					bestEvaluation = evaluation;
+					improved = true;
 				}
 			}
 		}
 	}
 
-	return { quad: best, score: bestScore };
+	return { quad: best, ...bestEvaluation };
+}
+
+function buildBoundaryDistance(data: Uint8Array, width: number, height: number) {
+	const distance = new Float32Array(width * height);
+	distance.fill(Number.POSITIVE_INFINITY);
+
+	for (let y = 1; y < height - 1; y++) {
+		for (let x = 1; x < width - 1; x++) {
+			const index = y * width + x;
+			if (
+				data[index] &&
+				(!data[index - 1] ||
+					!data[index + 1] ||
+					!data[index - width] ||
+					!data[index + width])
+			) {
+				distance[index] = 0;
+			}
+		}
+	}
+
+	const diagonal = Math.SQRT2;
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const index = y * width + x;
+			if (x > 0) distance[index] = Math.min(distance[index], distance[index - 1] + 1);
+			if (y > 0) distance[index] = Math.min(distance[index], distance[index - width] + 1);
+			if (x > 0 && y > 0)
+				distance[index] = Math.min(distance[index], distance[index - width - 1] + diagonal);
+			if (x + 1 < width && y > 0)
+				distance[index] = Math.min(distance[index], distance[index - width + 1] + diagonal);
+		}
+	}
+
+	for (let y = height - 1; y >= 0; y--) {
+		for (let x = width - 1; x >= 0; x--) {
+			const index = y * width + x;
+			if (x + 1 < width) distance[index] = Math.min(distance[index], distance[index + 1] + 1);
+			if (y + 1 < height)
+				distance[index] = Math.min(distance[index], distance[index + width] + 1);
+			if (x + 1 < width && y + 1 < height)
+				distance[index] = Math.min(distance[index], distance[index + width + 1] + diagonal);
+			if (x > 0 && y + 1 < height)
+				distance[index] = Math.min(distance[index], distance[index + width - 1] + diagonal);
+		}
+	}
+
+	return distance;
 }
 
 async function decodeMask(maskUrl: string, maxDimension = 500): Promise<BinaryMask> {
@@ -222,15 +397,20 @@ async function decodeMask(maskUrl: string, maxDimension = 500): Promise<BinaryMa
 	context.drawImage(image, 0, 0, width, height);
 	const pixels = context.getImageData(0, 0, width, height).data;
 	const data = new Uint8Array(width * height);
+	let area = 0;
 	for (let i = 0; i < data.length; i++) {
 		const offset = i * 4;
 		data[i] = pixels[offset] + pixels[offset + 1] + pixels[offset + 2] > 96 ? 1 : 0;
+		area += data[i];
 	}
+	if (area < 100) throw new Error('Segmentation mask is too small');
 
 	return {
 		width,
 		height,
 		data,
+		boundaryDistance: buildBoundaryDistance(data, width, height),
+		area,
 		scaleX: image.naturalWidth / width,
 		scaleY: image.naturalHeight / height
 	};
@@ -261,6 +441,7 @@ export async function fitQuadFromMask(maskUrl: string): Promise<FittedMaskQuad> 
 	const refined = refineQuad(mask, initial);
 	return {
 		score: refined.score,
+		metrics: refined.metrics,
 		quad: refined.quad.map((point) => ({
 			x: point.x * mask.scaleX,
 			y: point.y * mask.scaleY

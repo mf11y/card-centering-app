@@ -156,6 +156,7 @@ export async function inferCorners(file: File) {
 		y: point.y * prepared.scaleY
 	}));
 	result.refine_score = fitted.score;
+	result.quad_metrics = fitted.metrics;
 
 	return result;
 }
