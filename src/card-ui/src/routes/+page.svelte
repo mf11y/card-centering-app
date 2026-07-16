@@ -268,6 +268,11 @@ const inputController = createInputController({
 		if (Date.now() < suppressClearSelectionUntil) return;
 		selectTarget(null);
 	}
+	function handleGlobalKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			selectTarget(null);
+		}
+	}
 	function getCornerDelta(direction: Direction) {
 		if (!imageEl) return { dx: 0, dy: 0 };
 
@@ -1219,13 +1224,14 @@ const inputController = createInputController({
 		});
 
 		window.addEventListener('keydown', inputController.handleKeydown);
-		window.addEventListener('keyup', inputController.handleKeyup);
-		window.addEventListener('blur', inputController.clearPressedDirections);
+	window.addEventListener('keydown', handleGlobalKeydown);
+	window.addEventListener('keyup', inputController.handleKeyup);
+	window.addEventListener('blur', inputController.clearPressedDirections);
 
-		return () => {
-			resizeObserver?.disconnect();
-			window.removeEventListener('keydown', inputController.handleKeydown);
-			window.removeEventListener('keyup', inputController.handleKeyup);
+	return () => {
+		resizeObserver?.disconnect();
+		window.removeEventListener('keydown', inputController.handleKeydown);
+		window.removeEventListener('keydown', handleGlobalKeydown);
 			window.removeEventListener('blur', inputController.clearPressedDirections);
 			inputController.destroy();
 		};
@@ -1401,16 +1407,29 @@ const inputController = createInputController({
 										stroke-width="2"
 									/>
 
-									<!-- top -->
-									<line
-										x1="60"
-										y1="30"
-										x2="160"
-										y2="30"
-										stroke={activeGuide === 'top' ? '#60a5fa' : '#52525b'}
-										stroke-width="3"
-										stroke-linecap="round"
-									/>
+							<rect
+								x="60"
+								y="30"
+								width="100"
+								height="140"
+								rx="18"
+								fill="transparent"
+								pointer-events="all"
+								class="cursor-pointer"
+								role="button"
+								tabindex="0"
+								aria-label="Deselect corners and edges"
+								onclick={(e) => {
+									e.stopPropagation();
+									selectTarget(null);
+								}}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+										e.preventDefault();
+										selectTarget(null);
+									}
+								}}
+							/>
 									<line
 										x1="60"
 										y1="30"
@@ -2003,6 +2022,30 @@ const inputController = createInputController({
 									rx="18"
 									class="fill-zinc-900 stroke-zinc-700"
 									stroke-width="2"
+								/>
+
+								<rect
+									x="60"
+									y="30"
+									width="100"
+									height="140"
+									rx="18"
+									fill="transparent"
+									pointer-events="all"
+									class="cursor-pointer"
+									role="button"
+									tabindex="0"
+									aria-label="Deselect corners and edges"
+									onclick={(e) => {
+										e.stopPropagation();
+										selectTarget(null);
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+											e.preventDefault();
+											selectTarget(null);
+										}
+									}}
 								/>
 
 								<!-- top -->
@@ -2656,6 +2699,30 @@ const inputController = createInputController({
 									rx="18"
 									class="fill-zinc-900 stroke-zinc-700"
 									stroke-width="2"
+								/>
+
+								<rect
+									x="60"
+									y="30"
+									width="100"
+									height="140"
+									rx="18"
+									fill="transparent"
+									pointer-events="all"
+									class="cursor-pointer"
+									role="button"
+									tabindex="0"
+									aria-label="Deselect corners and edges"
+									onclick={(e) => {
+										e.stopPropagation();
+										selectTarget(null);
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+											e.preventDefault();
+											selectTarget(null);
+										}
+									}}
 								/>
 
 								<!-- top -->
