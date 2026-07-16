@@ -108,8 +108,8 @@ def get_segmentation_mask(img):
         imgsz=IMGSZ,
         conf=CONF,
         verbose=False,
-        device=0,
-        half=True
+        device='cpu',
+        half=False
     )
 
     if not results:
@@ -137,6 +137,8 @@ def get_segmentation_result(img):
         imgsz=IMGSZ,
         conf=CONF,
         verbose=False,
+        device='cpu',
+        half=False,
     )
 
     if not results:
