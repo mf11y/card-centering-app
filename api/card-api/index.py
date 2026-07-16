@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 
-from app.services.inference import run_inference_service, decode_image
+from app.services.inference import run_segmentation_service, decode_image
 from app.services.warp import warp_from_corners
 
 import io
@@ -25,13 +25,20 @@ app = FastAPI(title="Card API")
 inference_slot = asyncio.Semaphore(1)
 
 
-async def run_inference(contents: bytes, make_debug: bool = False):
+# Legacy server-side geometry runner. The browser now fits the quadrilateral
+# from the mask returned by /api/infer-json.
+# async def run_inference(contents: bytes, make_debug: bool = False):
+#     async with inference_slot:
+#         return await run_in_threadpool(
+#             run_inference_service,
+#             contents,
+#             make_debug,
+#         )
+
+
+async def run_segmentation(contents: bytes):
     async with inference_slot:
-        return await run_in_threadpool(
-            run_inference_service,
-            contents,
-            make_debug,
-        )
+        return await run_in_threadpool(run_segmentation_service, contents)
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +56,7 @@ def health():
 
 async def infer_json(file: UploadFile = File(...)):
     contents = await file.read()
-    result = await run_inference(contents)
+    result = await run_segmentation(contents)
 
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
@@ -89,66 +96,23 @@ async def infer_json(file: UploadFile = File(...)):
 
     return {
         "ok": True,
-        "corners": result["corners"],
-        "refine_score": result.get("refine_score"),
         "mask_base64": mask_base64,
     }
 
-@app.post("/api/infer-image")
-async def infer_image(file: UploadFile = File(...)):
-    contents = await file.read()
-    result = await run_inference(contents, make_debug=True)
-
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-
-    debug_img = result["debug_img"]
-
-    if debug_img is None:
-        raise HTTPException(status_code=500, detail="debug_img is None")
-
-    if not isinstance(debug_img, np.ndarray):
-        raise HTTPException(status_code=500, detail=f"debug_img is not ndarray: {type(debug_img)}")
-
-    if debug_img.dtype != np.uint8:
-        debug_img = np.clip(debug_img, 0, 255).astype(np.uint8)
-
-    ok, encoded = cv2.imencode(".jpg", debug_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-    if not ok:
-        raise HTTPException(status_code=500, detail="Failed to encode debug image")
-
-    return StreamingResponse(
-        io.BytesIO(encoded.tobytes()),
-        media_type="image/jpeg",
-    )
-
-@app.post("/api/warp")
-async def warp(file: UploadFile = File(...)):
-    contents = await file.read()
-    result = await run_inference(contents)
-
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
-
-    warped = result["warped_img"]
-
-    if warped is None:
-        raise HTTPException(status_code=500, detail="warped_img is None")
-
-    if not isinstance(warped, np.ndarray):
-        raise HTTPException(status_code=500, detail=f"warped_img is not ndarray: {type(warped)}")
-
-    if warped.dtype != np.uint8:
-        warped = np.clip(warped, 0, 255).astype(np.uint8)
-
-    ok, encoded = cv2.imencode(".jpg", warped, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-    if not ok:
-        raise HTTPException(status_code=500, detail="Failed to encode warped image")
-
-    return StreamingResponse(
-        io.BytesIO(encoded.tobytes()),
-        media_type="image/jpeg",
-    )
+# Legacy endpoints disabled because the frontend now fits corners and warps the
+# image locally. Keep this block for reference while the browser path is tested.
+#
+# @app.post("/api/infer-image")
+# async def infer_image(file: UploadFile = File(...)):
+#     contents = await file.read()
+#     result = await run_inference(contents, make_debug=True)
+#     ...
+#
+# @app.post("/api/warp")
+# async def warp(file: UploadFile = File(...)):
+#     contents = await file.read()
+#     result = await run_inference(contents)
+#     ...
 
 @app.post("/api/warp-from-corners")
 async def warp_from_corners_endpoint(

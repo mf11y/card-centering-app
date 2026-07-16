@@ -1,3 +1,5 @@
+import { fitQuadFromMask } from './mask-geometry';
+
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000/api';
 
 export async function prepareImageForApi(
@@ -141,15 +143,19 @@ export async function inferCorners(file: File) {
 	}
 
 	const result = await response.json();
-
-	// Scale returned corners back to original image coordinates
-	if (Array.isArray(result?.corners)) {
-		result.corners = result.corners.map((c: any) => ({
-			...c,
-			x: c.x * prepared.scaleX,
-			y: c.y * prepared.scaleY
-		}));
+	const maskUrl = getSegmentationMaskUrl(result);
+	if (!result?.ok || !maskUrl) {
+		throw new Error('API did not return a segmentation mask');
 	}
+
+	const fitted = await fitQuadFromMask(maskUrl);
+	const ids = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
+	result.corners = fitted.quad.map((point, index) => ({
+		id: ids[index],
+		x: point.x * prepared.scaleX,
+		y: point.y * prepared.scaleY
+	}));
+	result.refine_score = fitted.score;
 
 	return result;
 }
