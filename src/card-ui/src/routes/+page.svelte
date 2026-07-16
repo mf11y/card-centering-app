@@ -244,21 +244,7 @@ const inputController = createInputController({
 		}
 
 		if (target.type === 'corner') {
-			if (activeCorner === target.key) {
-				selectedTarget = null;
-				activeCorner = null;
-				activeGuide = null;
-				return;
-			}
-
 			activateTarget(target);
-			return;
-		}
-
-		if (activeGuide === target.key) {
-			selectedTarget = null;
-			activeGuide = null;
-			activeCorner = null;
 			return;
 		}
 
