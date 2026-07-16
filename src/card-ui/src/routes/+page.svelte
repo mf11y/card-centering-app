@@ -44,6 +44,8 @@ const inputController = createInputController({
 	const CORNER_ZOOM_SIZE = 150;
 	const SOURCE_OVERLAY_PADDING = 28;
 	const ACTION_ROW_TRANSITION_MS = 700;
+	const DRAG_SENSITIVITY = 0.3;
+	const FINE_DRAG_SENSITIVITY = 0.05;
 
 	/**
 	 * Source image / segmentation state.
@@ -378,9 +380,12 @@ const inputController = createInputController({
 		if (!draggingCorner || !imageEl) return;
 
 		didDragCorner = true;
+		const sensitivity = e.shiftKey ? FINE_DRAG_SENSITIVITY : DRAG_SENSITIVITY;
 
-		const displayDx = (e.clientX - cornerDragStart.pointerX) / sourceViewZoom;
-		const displayDy = (e.clientY - cornerDragStart.pointerY) / sourceViewZoom;
+		const displayDx =
+			((e.clientX - cornerDragStart.pointerX) / sourceViewZoom) * sensitivity;
+		const displayDy =
+			((e.clientY - cornerDragStart.pointerY) / sourceViewZoom) * sensitivity;
 		const naturalDx =
 			(displayDx / Math.max(displayedImageRect.width, 1)) * imageEl.naturalWidth;
 		const naturalDy =
@@ -421,6 +426,7 @@ const inputController = createInputController({
 		markGuideAdjusted(draggingGuide);
 
 		const horizontal = draggingGuide === 'left' || draggingGuide === 'right';
+		const sensitivity = e.shiftKey ? FINE_DRAG_SENSITIVITY : DRAG_SENSITIVITY;
 		const pointerDelta = horizontal
 			? e.clientX - guideDragStart.pointerX
 			: e.clientY - guideDragStart.pointerY;
@@ -430,7 +436,10 @@ const inputController = createInputController({
 		const inwardDirection =
 			draggingGuide === 'right' || draggingGuide === 'bottom' ? -1 : 1;
 		const deltaPct =
-			((pointerDelta / warpViewZoom) / Math.max(dimension, 1)) * 100 * inwardDirection;
+			((pointerDelta / warpViewZoom) / Math.max(dimension, 1)) *
+			100 *
+			inwardDirection *
+			sensitivity;
 
 		guideInsetsPct[draggingGuide] = Math.max(
 			0,
