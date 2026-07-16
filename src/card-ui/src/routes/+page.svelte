@@ -18,19 +18,20 @@
 		type CornerMap
 	} from '$lib/card-centering/corner-zoom';
 
-	let inputVisualTick = $state(0);
+// ==== Input controller and page state ====
+let inputVisualTick = $state(0);
 
-	const inputController = createInputController({
-		onNudge: (direction) => {
-			nudgeSelected(direction);
-		},
-		onStop: () => {},
-		onStateChange: () => {
-			inputVisualTick += 1;
-		}
-	});
+const inputController = createInputController({
+	onNudge: (direction) => {
+		nudgeSelected(direction);
+	},
+	onStop: () => {},
+	onStateChange: () => {
+		inputVisualTick += 1;
+	}
+});
 
-	/**
+/**
 	 * Timing/config constants used by interaction and zoom-preview helpers.
 	 * - NUDGE_WARP_DELAY: debounce delay before rerendering the warp preview after nudges.
 	 * - CORNER_PATCH_RADIUS: source-image pixel radius sampled around the selected corner.
@@ -90,7 +91,8 @@
 	});
 	let stepSize = $state(0.1);
 
-	/**
+// ---- Layout measurements and DOM refs ----
+/**
 	 * Layout measurements and DOM element references used for rendering math,
 	 * positioning overlays, and capture/interaction helpers.
 	 * - containerEl: source panel container element.
@@ -133,7 +135,8 @@
 	let viewPanStart = { pointerX: 0, pointerY: 0, panX: 0, panY: 0 };
 	let sourceImageVisible = $state(false);
 
-	/**
+// ---- Drag and gesture interaction state ----
+/**
 	 * Drag/gesture interaction state.
 	 * - draggingCorner: corner currently being dragged on the source image.
 	 * - didDragCorner: whether a real drag occurred before pointer release.
@@ -146,7 +149,8 @@
 	let suppressClearSelectionUntil = 0;
 	let draggingGuide = $state<GuideKey | null>(null);
 
-	/**
+// ---- UI flags, timers, and lifecycle helpers ----
+/**
 	 * UI flags, timers, and lifecycle helpers.
 	 * - hideUploadTimeout: timeout used for delayed upload/reset control visibility behavior.
 	 * - isDark: current warp preview theme toggle state.
@@ -168,7 +172,8 @@
 	let resizeObserver: ResizeObserver;
 	let actionRowBusy = $state(false);
 
-	/**
+// ---- UI helper functions ----
+/**
 	 * Small UI/helper utilities used by the page.
 	 * - getPadButtonClass: returns the directional pad button classes based on active input state.
 	 * - imageXToPercent / imageYToPercent: convert natural-image pixel coordinates into percentage
@@ -1249,11 +1254,13 @@
 	});
 </script>
 
+<!-- Page shell and top-level layout -->
 <div class="w-full overflow-x-hidden">
 	<div
 		class="min-h-screen bg-zinc-950
 		text-zinc-100 select-none"
 	>
+		<!-- Application header -->
 		<header class="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
 			<div class="max-w-8xl mx-auto flex items-center justify-end px-6 py-4">
 				<div class="text-right">
@@ -1264,6 +1271,7 @@
 		</header>
 
 		<main class="mx-auto flex h-[calc(100vh-220px)] w-full flex-col gap-6 px-6 py-6">
+			<!-- Main tool layout: adjustment panel, source preview, warp preview -->
 			<div class="grid w-full items-start gap-6 xl:grid-cols-[420px_auto_auto] xl:justify-center">
 				<section
 					class="flex w-full xl:w-[420px] flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
@@ -2376,12 +2384,23 @@
 						<!-- Warp Image -->
 						<div class="flex w-full items-center justify-start xl:justify-center">
 							<div
+								role="button"
+								tabindex="0"
+								aria-label="Clear active selection"
 								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950 focus:outline-none"
 								bind:this={warpContainerEl}
 								use:ctrlWheelZoom={'warp'}
 								onpointerdown={(e) => {
 									if ((e.target as HTMLElement).closest('button')) return;
 									clearActiveSelection();
+								}}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										if (!(e.target as HTMLElement).closest('button')) {
+											clearActiveSelection();
+										}
+									}
 								}}
 							>
 								{#if warpedImageUrl}
