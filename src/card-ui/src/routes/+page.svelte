@@ -613,7 +613,12 @@ const inputController = createInputController({
 		}
 
 		function onWheel(e: WheelEvent) {
-			if (!e.ctrlKey) return;
+			const focusTrap = node.closest<HTMLElement>('[data-focus-trap]');
+			const focusedElement = document.activeElement;
+			const panelHasFocus =
+				!!focusTrap && !!focusedElement && focusTrap.contains(focusedElement);
+
+			if (!e.ctrlKey && !panelHasFocus) return;
 
 			e.preventDefault();
 			e.stopPropagation();
