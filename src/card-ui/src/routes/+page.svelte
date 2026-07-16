@@ -43,6 +43,7 @@ const inputController = createInputController({
 	const CORNER_PATCH_RADIUS = 150;
 	const CORNER_ZOOM_SIZE = 150;
 	const SOURCE_OVERLAY_PADDING = 28;
+	const ACTION_ROW_TRANSITION_MS = 700;
 
 	/**
 	 * Source image / segmentation state.
@@ -885,18 +886,24 @@ const inputController = createInputController({
 
 		revokeWorkingUrls();
 
-		actionRowBusy = true;
-
 		imageFile = file;
 		imageUrl = URL.createObjectURL(file);
 
 		resetDerivedImageState();
 		pendingDetection = true;
 	}
+	async function transitionThenLoadFile(file: File) {
+		if (!file.type.startsWith('image/') || actionRowBusy || imageUrl) return;
+
+		actionRowBusy = true;
+		await new Promise((resolve) => setTimeout(resolve, ACTION_ROW_TRANSITION_MS));
+		loadFile(file);
+	}
 	async function loadTryMeImage() {
-		if (isSegmenting || imageUrl) return;
+		if (isSegmenting || actionRowBusy || imageUrl) return;
 
 		try {
+			actionRowBusy = true;
 			const response = await fetch('/tryme.webp');
 
 			if (!response.ok) {
@@ -909,8 +916,10 @@ const inputController = createInputController({
 				type: blob.type || 'image/webp'
 			});
 
+			await new Promise((resolve) => setTimeout(resolve, ACTION_ROW_TRANSITION_MS));
 			loadFile(file);
 		} catch (error) {
+			actionRowBusy = false;
 			console.error('Failed to load Try Me image:', error);
 		}
 	}
@@ -918,14 +927,14 @@ const inputController = createInputController({
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
-		loadFile(file);
+		void transitionThenLoadFile(file);
 	}
 
 	function handleDrop(event: DragEvent) {
 		event.preventDefault();
 		const file = event.dataTransfer?.files?.[0];
 		if (!file) return;
-		loadFile(file);
+		void transitionThenLoadFile(file);
 	}
 
 	function handleDragOver(event: DragEvent) {
@@ -1076,10 +1085,7 @@ const inputController = createInputController({
 		} finally {
 			isSegmenting = false;
 			imageReadyForControls = true;
-
-			setTimeout(() => {
-				actionRowBusy = false;
-			}, 350);
+			actionRowBusy = false;
 		}
 	}
 	async function handleSourceImageLoad() {
@@ -1509,53 +1515,55 @@ const inputController = createInputController({
 							<div class="space-y-4">
 								<!-- row 1: Try Me + Upload before image, Reset after image -->
 								<div>
-									{#if !imageUrl || actionRowBusy}
-										<div
-											class="grid transition-[grid-template-columns,gap] duration-350 ease-out"
-											style={`grid-template-columns: ${actionRowBusy ? '0fr 1fr' : '1fr 3fr'}; gap: ${
-												actionRowBusy ? '0rem' : '0.75rem'
-											};`}
-										>
+									<div
+										class="grid overflow-hidden"
+										style={`grid-template-columns: ${
+											actionRowBusy || imageUrl
+												? 'minmax(0, 0fr) minmax(0, 1fr)'
+												: 'minmax(0, 1fr) minmax(0, 3fr)'
+										}; column-gap: ${actionRowBusy || imageUrl ? '0rem' : '0.75rem'}; transition: grid-template-columns 650ms cubic-bezier(0.22, 1, 0.36, 1), column-gap 650ms cubic-bezier(0.22, 1, 0.36, 1);`}
+									>
 											<div class="min-w-0 overflow-hidden">
 												<button
-													class={`w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 transition-[opacity,padding,border-width] duration-300 ease-out hover:border-cyan-400 hover:bg-zinc-800 hover:text-cyan-300 ${
-														actionRowBusy
+													class={`w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 hover:border-cyan-400 hover:bg-zinc-800 hover:text-cyan-300 ${
+														actionRowBusy || imageUrl
 															? 'pointer-events-none border-0 px-0 opacity-0'
 															: 'opacity-100'
 													}`}
+													style="transition: opacity 400ms ease, padding 500ms ease, border-width 400ms ease;"
 													type="button"
 													onclick={loadTryMeImage}
-													disabled={actionRowBusy}
+													disabled={!!imageUrl}
 												>
 													<span class="whitespace-nowrap">Try Me</span>
 												</button>
 											</div>
 
 											<button
-												class={`min-w-0 rounded-lg border px-3 py-2.5 text-sm transition-[box-shadow,background-color,border-color,color] ${
+												class={`min-w-0 rounded-lg border px-3 py-2.5 text-sm ${
 													actionRowBusy
 														? 'border-blue-400 bg-zinc-800 text-blue-300 animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.7)]'
 														: 'border-cyan-400 bg-zinc-900 text-cyan-300 animate-pulse shadow-[0_0_10px_rgba(34,211,238,0.5)] hover:bg-zinc-800'
 												}`}
+												style="transition: box-shadow 400ms ease, background-color 400ms ease, border-color 400ms ease, color 400ms ease;"
 												type="button"
 												onclick={() => {
 													if (actionRowBusy) return;
-													document.getElementById('image-upload')?.click();
+													if (imageUrl) {
+														resetHandler();
+													} else {
+														document.getElementById('image-upload')?.click();
+													}
 												}}
 												disabled={actionRowBusy}
 											>
-												{isSegmenting ? 'Running...' : !imageUrl ? 'Upload' : 'Reset'}
+												{actionRowBusy || isSegmenting
+													? 'Running...'
+													: !imageUrl
+														? 'Upload'
+														: 'Reset'}
 											</button>
-										</div>
-									{:else}
-										<button
-											class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm transition hover:bg-zinc-800"
-											type="button"
-											onclick={resetHandler}
-										>
-											Reset
-										</button>
-									{/if}
+									</div>
 								</div>
 
 								<!-- row 2: step size -->
@@ -2053,7 +2061,9 @@ const inputController = createInputController({
 							<div class="absolute inset-0 overflow-hidden rounded-xl" bind:this={containerEl}>
 								{#if imageUrl}
 									<div
-										class="absolute inset-0 touch-none"
+										class={`absolute inset-0 touch-none transition-opacity duration-300 ${
+											warpedImageUrl ? 'opacity-100' : 'pointer-events-none opacity-0'
+										}`}
 										role="button"
 										tabindex="0"
 										bind:this={sourceFocusTrapEl}
@@ -2231,6 +2241,21 @@ const inputController = createInputController({
 											</div>
 										</div>
 									</div>
+
+									{#if !warpedImageUrl}
+										<div
+											class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-zinc-950 px-6 text-center"
+										>
+											<div>
+												<div class="mb-2 text-sm font-medium text-zinc-300">
+													{isSegmenting ? 'Finding best quadrilateral…' : 'Preparing detection…'}
+												</div>
+												<div class="text-xs text-zinc-500">
+													The source preview will appear when detection is complete.
+												</div>
+											</div>
+										</div>
+									{/if}
 								{/if}
 							</div>
 							{#if imageUrl}
