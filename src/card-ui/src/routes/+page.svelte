@@ -1470,7 +1470,7 @@ const inputController = createInputController({
 <!-- Page shell and top-level layout -->
 <div class="w-full overflow-x-hidden">
 	<div
-		class="min-h-screen bg-zinc-950
+		class="flex min-h-screen flex-col bg-zinc-950
 		text-zinc-100 select-none"
 	>
 		<!-- Application header -->
@@ -1483,7 +1483,7 @@ const inputController = createInputController({
 			</div>
 		</header>
 
-		<main class="mx-auto flex h-[calc(100vh-220px)] w-full flex-col gap-6 px-6 py-6">
+		<main class="mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-6">
 			<!-- Main tool layout: adjustment panel, source preview, warp preview -->
 			<div class="grid w-full items-start gap-6 xl:grid-cols-[420px_auto_auto] xl:justify-center">
 				<section
@@ -3328,5 +3328,14 @@ const inputController = createInputController({
 				</section>
 			</div>
 		</main>
+
+		<footer class="mt-auto border-t border-zinc-800 px-6 py-6 text-left sm:px-10">
+			<a
+				href="mailto:MoisesFigueroaDE@gmail.com"
+				class="text-sm text-zinc-400 transition-colors hover:text-cyan-400"
+			>
+				MoisesFigueroaDE@gmail.com
+			</a>
+		</footer>
 	</div>
 </div>
