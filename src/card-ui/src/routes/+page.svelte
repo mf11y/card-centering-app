@@ -576,6 +576,11 @@ const inputController = createInputController({
 	}
 
 	function ctrlWheelZoom(node: HTMLElement, kind: 'source' | 'warp') {
+		let isPinching = false;
+		let pinchStartDistance = 0;
+		let pinchStartZoom = 1;
+		let pinchImagePoint = { x: 0, y: 0 };
+
 		function getZoom() {
 			return kind === 'source' ? sourceViewZoom : warpViewZoom;
 		}
@@ -666,7 +671,7 @@ const inputController = createInputController({
 		}
 
 		function onPointerMove(e: PointerEvent) {
-			if (!isViewPanning) return;
+			if (!isViewPanning || isPinching) return;
 
 			e.preventDefault();
 			e.stopPropagation();
@@ -687,6 +692,7 @@ const inputController = createInputController({
 		}
 
 		function onPointerUp(e: PointerEvent) {
+			if (isPinching) return;
 			if (!isViewPanning) return;
 
 			isViewPanning = false;
@@ -696,7 +702,77 @@ const inputController = createInputController({
 			} catch {}
 		}
 
+		function getTouchMidpoint(touches: TouchList) {
+			return {
+				x: (touches[0].clientX + touches[1].clientX) / 2,
+				y: (touches[0].clientY + touches[1].clientY) / 2
+			};
+		}
+
+		function getTouchDistance(touches: TouchList) {
+			return Math.hypot(
+				touches[1].clientX - touches[0].clientX,
+				touches[1].clientY - touches[0].clientY
+			);
+		}
+
+		function onTouchStart(e: TouchEvent) {
+			if (e.touches.length !== 2) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+
+			isPinching = true;
+			isViewPanning = false;
+			pinchStartDistance = Math.max(getTouchDistance(e.touches), 1);
+			pinchStartZoom = getZoom();
+
+			const midpoint = getTouchMidpoint(e.touches);
+			const viewportRect = node.getBoundingClientRect();
+			const base = getBaseRectOffset();
+			const pan = getPan();
+			const localX = midpoint.x - viewportRect.left - base.x;
+			const localY = midpoint.y - viewportRect.top - base.y;
+
+			pinchImagePoint = {
+				x: (localX - pan.x) / pinchStartZoom,
+				y: (localY - pan.y) / pinchStartZoom
+			};
+		}
+
+		function onTouchMove(e: TouchEvent) {
+			if (!isPinching || e.touches.length !== 2) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+
+			const midpoint = getTouchMidpoint(e.touches);
+			const viewportRect = node.getBoundingClientRect();
+			const base = getBaseRectOffset();
+			const localX = midpoint.x - viewportRect.left - base.x;
+			const localY = midpoint.y - viewportRect.top - base.y;
+			const nextZoom = clampImageViewZoom(
+				pinchStartZoom * (getTouchDistance(e.touches) / pinchStartDistance)
+			);
+			const nextPan = {
+				x: localX - pinchImagePoint.x * nextZoom,
+				y: localY - pinchImagePoint.y * nextZoom
+			};
+
+			setZoom(nextZoom);
+			setPan(clampViewPan(nextPan, nextZoom, kind));
+		}
+
+		function onTouchEnd(e: TouchEvent) {
+			if (!isPinching || e.touches.length >= 2) return;
+			isPinching = false;
+		}
+
 		node.addEventListener('wheel', onWheel, { passive: false });
+		node.addEventListener('touchstart', onTouchStart, { passive: false });
+		node.addEventListener('touchmove', onTouchMove, { passive: false });
+		node.addEventListener('touchend', onTouchEnd);
+		node.addEventListener('touchcancel', onTouchEnd);
 		node.addEventListener('pointerdown', onPointerDown);
 		node.addEventListener('pointermove', onPointerMove);
 		node.addEventListener('pointerup', onPointerUp);
@@ -705,6 +781,10 @@ const inputController = createInputController({
 		return {
 			destroy() {
 				node.removeEventListener('wheel', onWheel);
+				node.removeEventListener('touchstart', onTouchStart);
+				node.removeEventListener('touchmove', onTouchMove);
+				node.removeEventListener('touchend', onTouchEnd);
+				node.removeEventListener('touchcancel', onTouchEnd);
 				node.removeEventListener('pointerdown', onPointerDown);
 				node.removeEventListener('pointermove', onPointerMove);
 				node.removeEventListener('pointerup', onPointerUp);
