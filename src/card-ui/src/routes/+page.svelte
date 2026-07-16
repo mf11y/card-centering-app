@@ -150,6 +150,17 @@ const inputController = createInputController({
 	let didDragCorner = $state(false);
 	let suppressClearSelectionUntil = 0;
 	let draggingGuide = $state<GuideKey | null>(null);
+	let cornerDragStart = {
+		pointerX: 0,
+		pointerY: 0,
+		cornerX: 0,
+		cornerY: 0
+	};
+	let guideDragStart = {
+		pointerX: 0,
+		pointerY: 0,
+		insetPct: 0
+	};
 
 // ---- UI flags, timers, and lifecycle helpers ----
 /**
@@ -363,27 +374,27 @@ const inputController = createInputController({
 	 */
 
 	function onPointerMove(e: PointerEvent) {
-		if (!draggingCorner || !imageEl || !containerEl) return;
+		if (!draggingCorner || !imageEl) return;
 
 		didDragCorner = true;
 
-		const containerRect = containerEl.getBoundingClientRect();
-
-		const localX = e.clientX - containerRect.left - displayedImageRect.x;
-		const localY = e.clientY - containerRect.top - displayedImageRect.y;
-
-		const unzoomedX = (localX - sourceViewPan.x) / sourceViewZoom;
-		const unzoomedY = (localY - sourceViewPan.y) / sourceViewZoom;
-
-		const x = (unzoomedX / Math.max(displayedImageRect.width, 1)) * imageEl.naturalWidth;
-		const y = (unzoomedY / Math.max(displayedImageRect.height, 1)) * imageEl.naturalHeight;
-
-		const clampedX = Math.max(0, Math.min(imageEl.naturalWidth, x));
-		const clampedY = Math.max(0, Math.min(imageEl.naturalHeight, y));
-
+		const displayDx = (e.clientX - cornerDragStart.pointerX) / sourceViewZoom;
+		const displayDy = (e.clientY - cornerDragStart.pointerY) / sourceViewZoom;
+		const naturalDx =
+			(displayDx / Math.max(displayedImageRect.width, 1)) * imageEl.naturalWidth;
+		const naturalDy =
+			(displayDy / Math.max(displayedImageRect.height, 1)) * imageEl.naturalHeight;
+		const nextX = Math.max(
+			0,
+			Math.min(imageEl.naturalWidth, cornerDragStart.cornerX + naturalDx)
+		);
+		const nextY = Math.max(
+			0,
+			Math.min(imageEl.naturalHeight, cornerDragStart.cornerY + naturalDy)
+		);
 		const current = corners[draggingCorner];
 
-		moveCorner(draggingCorner, clampedX - current.x, clampedY - current.y, false);
+		moveCorner(draggingCorner, nextX - current.x, nextY - current.y, false);
 	}
 	function stopDrag() {
 		const draggedCorner = draggingCorner;
@@ -406,39 +417,24 @@ const inputController = createInputController({
 	function onGuidePointerMove(e: PointerEvent) {
 		if (!draggingGuide || !warpContainerEl) return;
 
-		const rect = warpContainerEl.getBoundingClientRect();
-
-		const localX = e.clientX - rect.left;
-		const localY = e.clientY - rect.top;
-
-		const unzoomedX = (localX - warpViewPan.x) / warpViewZoom;
-		const unzoomedY = (localY - warpViewPan.y) / warpViewZoom;
-
-		const x = Math.max(0, Math.min(warpDisplayedImageRect.width, unzoomedX));
-		const y = Math.max(0, Math.min(warpDisplayedImageRect.height, unzoomedY));
-
 		markGuideAdjusted(draggingGuide);
 
-		if (draggingGuide === 'top') {
-			guideInsetsPct.top = (y / Math.max(warpDisplayedImageRect.height, 1)) * 100;
-			return;
-		}
+		const horizontal = draggingGuide === 'left' || draggingGuide === 'right';
+		const pointerDelta = horizontal
+			? e.clientX - guideDragStart.pointerX
+			: e.clientY - guideDragStart.pointerY;
+		const dimension = horizontal
+			? warpDisplayedImageRect.width
+			: warpDisplayedImageRect.height;
+		const inwardDirection =
+			draggingGuide === 'right' || draggingGuide === 'bottom' ? -1 : 1;
+		const deltaPct =
+			((pointerDelta / warpViewZoom) / Math.max(dimension, 1)) * 100 * inwardDirection;
 
-		if (draggingGuide === 'bottom') {
-			guideInsetsPct.bottom =
-				((warpDisplayedImageRect.height - y) / Math.max(warpDisplayedImageRect.height, 1)) * 100;
-			return;
-		}
-
-		if (draggingGuide === 'left') {
-			guideInsetsPct.left = (x / Math.max(warpDisplayedImageRect.width, 1)) * 100;
-			return;
-		}
-
-		if (draggingGuide === 'right') {
-			guideInsetsPct.right =
-				((warpDisplayedImageRect.width - x) / Math.max(warpDisplayedImageRect.width, 1)) * 100;
-		}
+		guideInsetsPct[draggingGuide] = Math.max(
+			0,
+			Math.min(100, guideDragStart.insetPct + deltaPct)
+		);
 	}
 	function stopGuideDrag() {
 		window.removeEventListener('pointermove', onGuidePointerMove);
@@ -458,6 +454,11 @@ const inputController = createInputController({
 		selectTarget({ type: 'guide', key: guideKey });
 
 		draggingGuide = guideKey;
+		guideDragStart = {
+			pointerX: e.clientX,
+			pointerY: e.clientY,
+			insetPct: guideInsetsPct[guideKey]
+		};
 
 		window.addEventListener('pointermove', onGuidePointerMove);
 		window.addEventListener('pointerup', stopGuideDrag);
@@ -2168,6 +2169,12 @@ const inputController = createInputController({
 																selectTarget({ type: 'corner', key: corner.key });
 																e.currentTarget.focus({ preventScroll: true });
 																draggingCorner = corner.key;
+																cornerDragStart = {
+																	pointerX: e.clientX,
+																	pointerY: e.clientY,
+																	cornerX: corners[corner.key].x,
+																	cornerY: corners[corner.key].y
+																};
 																didDragCorner = false;
 
 																window.addEventListener('pointermove', onPointerMove);
