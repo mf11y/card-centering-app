@@ -662,6 +662,7 @@ const inputController = createInputController({
 
 			const target = e.target as HTMLElement | null;
 			if (target?.closest('button')) return;
+			if (kind === 'warp') clearActiveSelection();
 
 			e.preventDefault();
 			e.stopPropagation();
