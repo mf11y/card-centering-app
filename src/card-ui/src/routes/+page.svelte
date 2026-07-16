@@ -247,9 +247,7 @@ const inputController = createInputController({
 				return;
 			}
 
-			selectedTarget = target;
-			activeCorner = target.key;
-			activeGuide = null;
+			activateTarget(target);
 			return;
 		}
 
@@ -260,7 +258,18 @@ const inputController = createInputController({
 			return;
 		}
 
+		activateTarget(target);
+	}
+
+	function activateTarget(target: Exclude<ControlTarget, null>) {
 		selectedTarget = target;
+
+		if (target.type === 'corner') {
+			activeCorner = target.key;
+			activeGuide = null;
+			return;
+		}
+
 		activeGuide = target.key;
 		activeCorner = null;
 	}
@@ -994,18 +1003,24 @@ const inputController = createInputController({
 
 	/**
 	 * Miscellaneous interaction and export helpers.
-	 * - handleSourceTrapKeydown: customizes Tab navigation within the source corner controls so focus
-	 *   cycles only through the source-corner buttons and keeps the focused corner synced with selection state.
+	 * - handleSourceTrapKeydown: traps Tab navigation within the source corner controls.
+	 * - handleWarpTrapKeydown: traps Tab navigation within the warped-preview guide controls.
 	 * - captureWarpPanel: captures the warp preview area as a PNG image using html2canvas, downloads it,
 	 *   and revokes the temporary blob URL after export.
 	 */
 
 	function handleSourceTrapKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Tab' || !sourceFocusTrapEl || !imageUrl) return;
+		if (!sourceFocusTrapEl.contains(event.target as Node)) return;
 
-		const focusable = Array.from(
-			sourceFocusTrapEl.querySelectorAll<HTMLButtonElement>('button[data-source-corner="true"]')
-		).filter((el) => !el.disabled);
+		const cornerOrder = ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as const;
+		const focusable = cornerOrder
+			.map((cornerKey) =>
+				sourceFocusTrapEl?.querySelector<HTMLButtonElement>(
+					`button[data-source-corner="true"][data-corner-key="${cornerKey}"]`
+				)
+			)
+			.filter((el): el is HTMLButtonElement => !!el && !el.disabled);
 
 		if (!focusable.length) return;
 
@@ -1024,13 +1039,101 @@ const inputController = createInputController({
 		}
 
 		event.preventDefault();
+		event.stopPropagation();
 		nextEl.focus();
 
 		const cornerKey = nextEl.dataset.cornerKey as keyof typeof corners | undefined;
 		if (cornerKey) {
-			activeCorner = cornerKey;
-			activeGuide = null;
+			activateTarget({ type: 'corner', key: cornerKey });
 		}
+	}
+
+	function handleWarpTrapKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Tab' || !warpContainerEl || !warpedImageUrl) return;
+		if (!warpContainerEl.contains(event.target as Node)) return;
+
+		const guideOrder: GuideKey[] = ['top', 'right', 'bottom', 'left'];
+		const focusable = guideOrder
+			.map((guideKey) =>
+				warpContainerEl?.querySelector<HTMLButtonElement>(
+					`button[data-warp-guide="true"][data-guide-key="${guideKey}"]`
+				)
+			)
+			.filter((el): el is HTMLButtonElement => !!el && !el.disabled);
+
+		if (!focusable.length) return;
+
+		const currentIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
+		let nextEl: HTMLButtonElement;
+
+		if (currentIndex === -1) {
+			nextEl =
+				focusable.find((el) => el.getAttribute('aria-pressed') === 'true') ?? focusable[0];
+		} else if (event.shiftKey) {
+			const prevIndex = currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1;
+			nextEl = focusable[prevIndex];
+		} else {
+			const nextIndex = currentIndex === focusable.length - 1 ? 0 : currentIndex + 1;
+			nextEl = focusable[nextIndex];
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		nextEl.focus();
+
+		const guideKey = nextEl.dataset.guideKey as GuideKey | undefined;
+		if (guideKey) {
+			activateTarget({ type: 'guide', key: guideKey });
+		}
+	}
+
+	const miniMapFocusOrder = [
+		{ label: 'Select top left corner', target: { type: 'corner', key: 'topLeft' } },
+		{ label: 'Select top edge', target: { type: 'guide', key: 'top' } },
+		{ label: 'Select top right corner', target: { type: 'corner', key: 'topRight' } },
+		{ label: 'Select right edge', target: { type: 'guide', key: 'right' } },
+		{ label: 'Select bottom right corner', target: { type: 'corner', key: 'bottomRight' } },
+		{ label: 'Select bottom edge', target: { type: 'guide', key: 'bottom' } },
+		{ label: 'Select bottom left corner', target: { type: 'corner', key: 'bottomLeft' } },
+		{ label: 'Select left edge', target: { type: 'guide', key: 'left' } }
+	] as const;
+
+	function handleMiniMapTrapKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Tab') return;
+
+		const miniMap = event.currentTarget as HTMLElement;
+		const focusable = miniMapFocusOrder
+			.map(({ label, target }) => {
+				const element = miniMap.querySelector<SVGElement>(`[aria-label="${label}"]`);
+				return element ? { element, target } : null;
+			})
+			.filter(
+				(
+					item
+				): item is {
+					element: SVGElement;
+					target: (typeof miniMapFocusOrder)[number]['target'];
+				} => item !== null
+			);
+
+		if (!focusable.length) return;
+
+		const currentIndex = focusable.findIndex(({ element }) => element === document.activeElement);
+		const nextIndex =
+			currentIndex === -1
+				? 0
+				: event.shiftKey
+					? currentIndex <= 0
+						? focusable.length - 1
+						: currentIndex - 1
+					: currentIndex === focusable.length - 1
+						? 0
+						: currentIndex + 1;
+		const next = focusable[nextIndex];
+
+		event.preventDefault();
+		next.element.focus();
+		activateTarget(next.target);
 	}
 
 	async function captureWarpPanel() {
@@ -1377,7 +1480,13 @@ const inputController = createInputController({
 								</div>
 							</div>
 
-							<div class="mx-auto flex max-w-[260px] flex-col items-center gap-1 p-2">
+							<div
+								class="mx-auto flex max-w-[260px] flex-col items-center gap-1 p-2"
+								role="toolbar"
+								aria-label="Card controls mini map"
+								tabindex="-1"
+								onkeydown={handleMiniMapTrapKeydown}
+							>
 								<!-- labels -->
 								<text
 									x="110"
@@ -1395,7 +1504,10 @@ const inputController = createInputController({
 								>
 									SIDES = WARP
 								</text>
-								<svg viewBox="0 0 220 210" class="w-full overflow-visible">
+								<svg
+									viewBox="0 0 220 210"
+									class="w-full overflow-visible"
+								>
 									<!-- card body -->
 									<rect
 										x="60"
@@ -1430,6 +1542,16 @@ const inputController = createInputController({
 									}
 								}}
 							/>
+									<!-- top -->
+									<line
+										x1="60"
+										y1="30"
+										x2="160"
+										y2="30"
+										stroke={activeGuide === 'top' ? '#60a5fa' : '#52525b'}
+										stroke-width="3"
+										stroke-linecap="round"
+									/>
 									<line
 										x1="60"
 										y1="30"
@@ -1917,7 +2039,7 @@ const inputController = createInputController({
 															type="button"
 															aria-label={`Toggle ${corner.key} arrow control`}
 															aria-pressed={activeCorner === corner.key}
-															class="absolute z-10 flex h-10 w-10 items-center justify-center"
+														class="absolute z-10 flex h-10 w-10 items-center justify-center focus:outline-none"
 															style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
 															style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
 															style:transform={corner.key === 'topLeft'
@@ -1938,11 +2060,14 @@ const inputController = createInputController({
 																window.addEventListener('pointermove', onPointerMove);
 																window.addEventListener('pointerup', stopDrag);
 															}}
-															onclick={(e) => {
-																e.stopPropagation();
-																selectTarget({ type: 'corner', key: corner.key });
-															}}
-															data-source-corner="true"
+														onclick={(e) => {
+															e.stopPropagation();
+															selectTarget({ type: 'corner', key: corner.key });
+														}}
+														onfocus={() => {
+															activateTarget({ type: 'corner', key: corner.key });
+														}}
+														data-source-corner="true"
 															data-corner-key={corner.key}
 														>
 															<div
@@ -2011,8 +2136,17 @@ const inputController = createInputController({
 							</div>
 						</div>
 
-						<div class="mx-auto grid w-full max-w-[420px] grid-cols-2 items-center gap- p-1">
-							<svg viewBox="0 0 220 210" class="h-[210px] w-full overflow-visible">
+						<div
+							class="mx-auto grid w-full max-w-[420px] grid-cols-2 items-center gap- p-1"
+							role="toolbar"
+							aria-label="Card controls mini map"
+							tabindex="-1"
+							onkeydown={handleMiniMapTrapKeydown}
+						>
+							<svg
+								viewBox="0 0 220 210"
+								class="h-[210px] w-full overflow-visible"
+							>
 								<!-- card body -->
 								<rect
 									x="60"
@@ -2058,6 +2192,29 @@ const inputController = createInputController({
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
+								<line
+									x1="60"
+									y1="30"
+									x2="160"
+									y2="30"
+									stroke="transparent"
+									stroke-width="20"
+									stroke-linecap="round"
+									class="cursor-pointer focus:outline-none"
+									role="button"
+									tabindex="0"
+									aria-label="Select top edge"
+									onclick={(e) => {
+										e.stopPropagation();
+										selectTarget({ type: 'guide', key: 'top' });
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'guide', key: 'top' });
+										}
+									}}
+								/>
 
 								<!-- right -->
 								<line
@@ -2068,6 +2225,29 @@ const inputController = createInputController({
 									stroke={activeGuide === 'right' ? '#60a5fa' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
+								/>
+								<line
+									x1="160"
+									y1="30"
+									x2="160"
+									y2="170"
+									stroke="transparent"
+									stroke-width="20"
+									stroke-linecap="round"
+									class="cursor-pointer focus:outline-none"
+									role="button"
+									tabindex="0"
+									aria-label="Select right edge"
+									onclick={(e) => {
+										e.stopPropagation();
+										selectTarget({ type: 'guide', key: 'right' });
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'guide', key: 'right' });
+										}
+									}}
 								/>
 
 								<!-- bottom -->
@@ -2080,6 +2260,29 @@ const inputController = createInputController({
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
+								<line
+									x1="60"
+									y1="170"
+									x2="160"
+									y2="170"
+									stroke="transparent"
+									stroke-width="20"
+									stroke-linecap="round"
+									class="cursor-pointer focus:outline-none"
+									role="button"
+									tabindex="0"
+									aria-label="Select bottom edge"
+									onclick={(e) => {
+										e.stopPropagation();
+										selectTarget({ type: 'guide', key: 'bottom' });
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'guide', key: 'bottom' });
+										}
+									}}
+								/>
 
 								<!-- left -->
 								<line
@@ -2090,6 +2293,29 @@ const inputController = createInputController({
 									stroke={activeGuide === 'left' ? '#60a5fa' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
+								/>
+								<line
+									x1="60"
+									y1="30"
+									x2="60"
+									y2="170"
+									stroke="transparent"
+									stroke-width="20"
+									stroke-linecap="round"
+									class="cursor-pointer focus:outline-none"
+									role="button"
+									tabindex="0"
+									aria-label="Select left edge"
+									onclick={(e) => {
+										e.stopPropagation();
+										selectTarget({ type: 'guide', key: 'left' });
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											selectTarget({ type: 'guide', key: 'left' });
+										}
+									}}
 								/>
 
 								<!-- corner hotspots -->
@@ -2438,6 +2664,8 @@ const inputController = createInputController({
 									clearActiveSelection();
 								}}
 								onkeydown={(e) => {
+									handleWarpTrapKeydown(e);
+
 									if (e.key === 'Enter' || e.key === ' ') {
 										e.preventDefault();
 										if (!(e.target as HTMLElement).closest('button')) {
@@ -2516,7 +2744,10 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust top guide"
-													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
+													aria-pressed={activeGuide === 'top'}
+													data-warp-guide="true"
+													data-guide-key="top"
+													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer focus:outline-none"
 													style={`top: ${topPx}px;`}
 													onpointerdown={(e) => {
 														e.stopPropagation();
@@ -2527,7 +2758,7 @@ const inputController = createInputController({
 														selectTarget({ type: 'guide', key: 'top' });
 													}}
 													onfocus={() => {
-														selectTarget({ type: 'guide', key: 'top' });
+														activateTarget({ type: 'guide', key: 'top' });
 													}}
 												></button>
 
@@ -2535,7 +2766,10 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust bottom guide"
-													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer"
+													aria-pressed={activeGuide === 'bottom'}
+													data-warp-guide="true"
+													data-guide-key="bottom"
+													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer focus:outline-none"
 													style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
 													onpointerdown={(e) => {
 														e.stopPropagation();
@@ -2546,7 +2780,7 @@ const inputController = createInputController({
 														selectTarget({ type: 'guide', key: 'bottom' });
 													}}
 													onfocus={() => {
-														selectTarget({ type: 'guide', key: 'bottom' });
+														activateTarget({ type: 'guide', key: 'bottom' });
 													}}
 												></button>
 
@@ -2554,7 +2788,10 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust left guide"
-													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
+													aria-pressed={activeGuide === 'left'}
+													data-warp-guide="true"
+													data-guide-key="left"
+													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer focus:outline-none"
 													style={`left: ${leftPx}px;`}
 													onpointerdown={(e) => {
 														e.stopPropagation();
@@ -2565,7 +2802,7 @@ const inputController = createInputController({
 														selectTarget({ type: 'guide', key: 'left' });
 													}}
 													onfocus={() => {
-														selectTarget({ type: 'guide', key: 'left' });
+														activateTarget({ type: 'guide', key: 'left' });
 													}}
 												></button>
 
@@ -2573,7 +2810,10 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust right guide"
-													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer"
+													aria-pressed={activeGuide === 'right'}
+													data-warp-guide="true"
+													data-guide-key="right"
+													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer focus:outline-none"
 													style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
 													onpointerdown={(e) => {
 														e.stopPropagation();
@@ -2584,7 +2824,7 @@ const inputController = createInputController({
 														selectTarget({ type: 'guide', key: 'right' });
 													}}
 													onfocus={() => {
-														selectTarget({ type: 'guide', key: 'right' });
+														activateTarget({ type: 'guide', key: 'right' });
 													}}
 												></button>
 
@@ -2688,8 +2928,17 @@ const inputController = createInputController({
 							</div>
 						</div>
 
-						<div class="mx-auto grid w-full max-w-[420px] grid-cols-2 items-center gap- p-1">
-							<svg viewBox="0 0 220 210" class="h-[210px] w-full overflow-visible">
+						<div
+							class="mx-auto grid w-full max-w-[420px] grid-cols-2 items-center gap- p-1"
+							role="toolbar"
+							aria-label="Card controls mini map"
+							tabindex="-1"
+							onkeydown={handleMiniMapTrapKeydown}
+						>
+							<svg
+								viewBox="0 0 220 210"
+								class="h-[210px] w-full overflow-visible"
+							>
 								<!-- card body -->
 								<rect
 									x="60"
