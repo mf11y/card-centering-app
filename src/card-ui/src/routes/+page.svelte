@@ -154,6 +154,7 @@ const inputController = createInputController({
 	 * UI flags, timers, and lifecycle helpers.
 	 * - hideUploadTimeout: timeout used for delayed upload/reset control visibility behavior.
 	 * - isDark: current warp preview theme toggle state.
+	 * - warpEnhanceMode: visual enhancement applied to the warped card image.
 	 * - nudgeWarpTimeout: debounce timer for rerunning the warp preview after movement.
 	 * - hasAdjustedVerticalGuides: whether top/bottom guides have been manually touched.
 	 * - hasAdjustedHorizontalGuides: whether left/right guides have been manually touched.
@@ -164,6 +165,7 @@ const inputController = createInputController({
 
 	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
 	let isDark = $state(true);
+	let warpEnhanceMode = $state<'original' | 'contrast' | 'grayscale'>('original');
 	let nudgeWarpTimeout: ReturnType<typeof setTimeout> | null = null;
 	let hasAdjustedVerticalGuides = $state(false);
 	let hasAdjustedHorizontalGuides = $state(false);
@@ -259,6 +261,27 @@ const inputController = createInputController({
 		}
 
 		activateTarget(target);
+	}
+
+	function cycleWarpEnhanceMode() {
+		warpEnhanceMode =
+			warpEnhanceMode === 'original'
+				? 'contrast'
+				: warpEnhanceMode === 'contrast'
+					? 'grayscale'
+					: 'original';
+	}
+
+	function getWarpEnhanceLabel() {
+		if (warpEnhanceMode === 'contrast') return 'High contrast';
+		if (warpEnhanceMode === 'grayscale') return 'Grayscale contrast';
+		return 'Original colors';
+	}
+
+	function getWarpEnhanceFilter() {
+		if (warpEnhanceMode === 'contrast') return 'contrast(1.8) saturate(1.8)';
+		if (warpEnhanceMode === 'grayscale') return 'grayscale(1) contrast(2.2)';
+		return 'none';
 	}
 
 	function activateTarget(target: Exclude<ControlTarget, null>) {
@@ -773,6 +796,7 @@ const inputController = createInputController({
 		pendingDetection = false;
 		stepSize = 0.1;
 		isDark = true;
+		warpEnhanceMode = 'original';
 
 		clearUploadInput();
 	}
@@ -2508,6 +2532,24 @@ const inputController = createInputController({
 							>
 								{isDark ? '☀️' : '🌙'}
 							</button>
+
+							<button
+								class={`min-w-8 rounded px-1.5 py-1 text-xs font-bold transition hover:scale-105 active:scale-95 ${
+									warpEnhanceMode === 'original'
+										? 'text-zinc-400'
+										: 'bg-cyan-400/10 text-cyan-400'
+								}`}
+								onclick={cycleWarpEnhanceMode}
+								type="button"
+								aria-label={`Warp visibility mode: ${getWarpEnhanceLabel()}`}
+								title={`${getWarpEnhanceLabel()} — click for next mode`}
+							>
+								{warpEnhanceMode === 'original'
+									? 'FX'
+									: warpEnhanceMode === 'contrast'
+										? 'HC'
+										: 'BW'}
+							</button>
 						</div>
 					</div>
 
@@ -2684,6 +2726,7 @@ const inputController = createInputController({
 												src={warpedImageUrl}
 												alt="Warped preview"
 												class="absolute inset-0 h-full w-full object-cover"
+												style:filter={getWarpEnhanceFilter()}
 												onload={() => updateWarpDisplayedImageRect()}
 												draggable="false"
 											/>
