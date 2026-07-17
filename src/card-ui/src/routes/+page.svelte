@@ -18,7 +18,11 @@
 		type CornerMap
 	} from '$lib/card-centering/corner-zoom';
 
-// ==== Input controller and page state ====
+/**
+ * Shared directional-input controller and its reactive rendering tick.
+ * - inputVisualTick: forces pad-button classes to refresh when controller state changes.
+ * - inputController: coordinates keyboard/pad holds and delegates each nudge to the selected target.
+ */
 let inputVisualTick = $state(0);
 
 const inputController = createInputController({
@@ -37,6 +41,9 @@ const inputController = createInputController({
 	 * - CORNER_PATCH_RADIUS: source-image pixel radius sampled around the selected corner.
 	 * - CORNER_ZOOM_SIZE: rendered canvas size for the corner zoom preview.
 	 * - SOURCE_OVERLAY_PADDING: solid canvas margin reserved around the image for corner controls.
+	 * - ACTION_ROW_TRANSITION_MS: duration reserved for the Try Me/upload action-row transition.
+	 * - DRAG_SENSITIVITY: normal fraction of pointer travel applied to corner and guide dragging.
+	 * - FINE_DRAG_SENSITIVITY: reduced drag fraction applied while Shift is held.
 	 */
 
 	const NUDGE_WARP_DELAY = 150;
@@ -53,7 +60,7 @@ const inputController = createInputController({
 	 * - imageUrl: blob URL for the source image preview.
 	 * - imageEl: DOM reference to the rendered source <img>.
 	 * - warpedImageUrl: generated preview URL for the perspective-warped image.
-	 * - segmentationMaskUrl: optional mask/debug overlay returned from segmentation.
+	 * - segmentationMaskUrl: normalized mask URL returned from segmentation and used for fit state/cleanup.
 	 * - isSegmenting: whether auto-detection / corner inference is currently running.
 	 */
 
@@ -71,8 +78,8 @@ const inputController = createInputController({
 	 * - activeGuide: currently selected warp guide line, if any.
 	 * - ControlTarget: union describing what the arrow pad / keyboard will move.
 	 * - selectedTarget: the currently controlled corner or guide.
-	 * - guideInsetsPct: guide line offsets inside the warp preview, in display pixels.
-	 * - stepSize: nudge amount used by keyboard and directional pad adjustments.
+	 * - guideInsetsPct: guide line insets inside the warp preview, expressed as percentages.
+	 * - stepSize: percentage step used by keyboard and directional-pad adjustments.
 	 */
 
 	let corners = $state({
@@ -121,12 +128,10 @@ const inputController = createInputController({
 
 	/**
 	 * Zoom and display presentation state.
-	 * - autoZoomToCorners: whether source view should auto-center/zoom around detected corners.
-	 * - frozenZoom: locked zoom transform for the source panel.
-	 * - frozenStage: locked stage dimensions used while transitioning zoom/display state.
-	 * - zoomLevel: current source panel zoom level.
-	 * - pageZoom: overall page-scale zoom for the full tool layout.
-	 * - animateSourceZoom: enables smooth transform transitions for the source image plane.
+	 * - sourceViewZoom / sourceViewPan: current scale and translation for the source image.
+	 * - warpViewZoom / warpViewPan: current scale and translation for the warped preview.
+	 * - isViewPanning: whether a zoomed preview is currently being pointer-panned.
+	 * - viewPanStart: pointer and pan coordinates captured at the beginning of a pan.
 	 * - sourceImageVisible: delays image fade-in until layout is ready.
 	 */
 
@@ -147,6 +152,8 @@ const inputController = createInputController({
 	 * - didDragCorner: whether a real drag occurred before pointer release.
 	 * - suppressClearSelectionUntil: short cooldown to prevent click-up from clearing selection.
 	 * - draggingGuide: guide currently being dragged in the warp preview.
+	 * - cornerDragStart: pointer and natural-image corner coordinates captured when corner dragging starts.
+	 * - guideDragStart: pointer coordinates and guide inset captured when guide dragging starts.
 	 */
 
 	let draggingCorner: keyof typeof corners | null = null;
@@ -168,7 +175,7 @@ const inputController = createInputController({
 // ---- UI flags, timers, and lifecycle helpers ----
 /**
 	 * UI flags, timers, and lifecycle helpers.
-	 * - hideUploadTimeout: timeout used for delayed upload/reset control visibility behavior.
+	 * - hideUploadTimeout: short settling timeout maintained after image controls become ready.
 	 * - isDark: current warp preview theme toggle state.
 	 * - warpEnhanceMode: visual enhancement applied to the warped card image.
 	 * - nudgeWarpTimeout: debounce timer for rerunning the warp preview after movement.
@@ -177,6 +184,7 @@ const inputController = createInputController({
 	 * - pendingDetection: whether segmentation should run once the source image fully loads.
 	 * - imageReadyForControls: whether the source image/layout is ready for interactive controls.
 	 * - resizeObserver: observes source/warp containers so display rects stay in sync with layout.
+	 * - actionRowBusy: keeps the action-row loading transition active before file processing begins.
 	 */
 
 	let hideUploadTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -196,7 +204,6 @@ const inputController = createInputController({
 	 * - getPadButtonClass: returns the directional pad button classes based on active input state.
 	 * - imageXToPercent / imageYToPercent: convert natural-image pixel coordinates into percentage
 	 *   positions for SVG overlay placement on the rendered source image.
-	 * - getZoomStyleLocal: builds the current source-image transform style from zoom/view state.
 	 * - markGuideAdjusted: records whether vertical or horizontal warp guides have been manually touched,
 	 *   which is used for perfect-centering highlight logic.
 	 * - getCornersForBackend: converts local corner state into the backend-friendly corner array shape.
@@ -237,14 +244,18 @@ const inputController = createInputController({
 
 	/**
 	 * Selection and movement helpers for the current control target.
-	 * - selectTarget: sets, toggles, or clears the active corner/guide selection and keeps
+	 * - selectTarget / activateTarget: set or clear the active corner/guide and keep
 	 *   selectedTarget, activeCorner, and activeGuide in sync.
+	 * - cycleWarpEnhanceMode / getWarpEnhanceLabel / getWarpEnhanceFilter: cycle and describe the
+	 *   original, high-contrast, and grayscale-contrast warped-image presentation modes.
 	 * - clearActiveSelection: clears the current selection unless a recent drag just ended
 	 *   and selection clearing is still temporarily suppressed.
+	 * - handleGlobalKeydown: clears the active target when Escape is pressed.
+	 * - getCornerDelta: converts the configured percentage step into natural-image x/y movement.
 	 * - nudgeSelected: applies directional input to the currently selected corner or guide.
 	 * - moveCorner: updates a source corner position within image bounds and optionally schedules
 	 *   a warp preview refresh.
-	 * - moveActiveGuide: applies directional movement to the currently active warp guide and marks
+	 * - moveGuideByKey: applies directional movement to a specified warp guide and marks
 	 *   that guide group as manually adjusted.
 	 * - scheduleNudgeWarp: debounces warp preview regeneration after movement changes.
 	 */
@@ -364,16 +375,19 @@ const inputController = createInputController({
 
 	/**
 	 * Pointer drag handlers for direct mouse/touch adjustment.
-	 * - onPointerMove: updates the currently dragged source corner by converting pointer position
-	 *   from rendered image space into natural-image coordinates.
+	 * - onPointerMove: moves the active source corner relative to its drag-start position, compensating
+	 *   for preview zoom and applying normal or Shift-modified fine sensitivity.
 	 * - stopDrag: ends a corner drag, removes global listeners, preserves the dragged corner as selected,
 	 *   and triggers a final warp preview refresh.
-	 * - onGuidePointerMove: updates the currently dragged warp guide based on pointer position inside
-	 *   the warp preview bounds.
+	 * - onGuidePointerMove: moves the active guide relative to its drag-start inset, compensating for
+	 *   preview zoom and applying normal or Shift-modified fine sensitivity.
 	 * - stopGuideDrag: ends a guide drag, removes global listeners, and preserves the dragged guide
 	 *   as the active selection.
 	 * - startGuideDrag: begins dragging a warp guide and attaches the global move/up listeners needed
 	 *   for smooth dragging outside the initial hit area.
+	 * - updateSize / updateDisplayedImageRect: measure the source viewport and fit the natural image
+	 *   inside it while reserving overlay padding for the corner controls.
+	 * - updateWarpDisplayedImageRect: synchronizes warp overlay dimensions with its container.
 	 */
 
 	function onPointerMove(e: PointerEvent) {
@@ -533,6 +547,11 @@ const inputController = createInputController({
 		};
 	}
 
+	/**
+	 * Derived overlay measurements and corner-magnifier visibility.
+	 * - topPx / bottomPx / leftPx / rightPx: convert percentage guide insets into preview pixels.
+	 * - showCornerZoomPatch: shows the magnifier only with an active corner at base source zoom.
+	 */
 	const topPx = $derived((guideInsetsPct.top / 100) * warpDisplayedImageRect.height);
 	const bottomPx = $derived((guideInsetsPct.bottom / 100) * warpDisplayedImageRect.height);
 	const leftPx = $derived((guideInsetsPct.left / 100) * warpDisplayedImageRect.width);
@@ -540,11 +559,13 @@ const inputController = createInputController({
 	const showCornerZoomPatch = $derived(imageUrl && activeCorner && sourceViewZoom <= 1.001);
 
 	/**
-	 * Page-level zoom controls for the overall tool layout.
-	 * - applyPageZoom: steps the current page zoom to the next allowed value in PAGE_ZOOM_VALUES,
-	 *   clamped within the supported range.
-	 * - zoomPageIn: increases the overall page zoom by one preset step.
-	 * - zoomPageOut: decreases the overall page zoom by one preset step.
+	 * Independent source/warp preview zoom, pan, and pinch helpers.
+	 * - IMAGE_VIEW_ZOOM_MIN / MAX / STEP: shared scale limits and wheel increment.
+	 * - clampViewPan: constrains translation so a zoomed image cannot be panned beyond its bounds.
+	 * - clampImageViewZoom: constrains a requested scale to the supported range.
+	 * - getViewZoomStyle: serializes a panel's scale and translation into an inline transform.
+	 * - ctrlWheelZoom: Svelte action that enables cursor-centered wheel zoom, pointer panning when
+	 *   zoomed, and two-finger pinch zoom for either picture panel, with listener cleanup on destroy.
 	 */
 
 	const IMAGE_VIEW_ZOOM_MIN = 1;
@@ -810,10 +831,12 @@ const inputController = createInputController({
 	 *   adjustment state, pending detection, and UI preferences tied to the active session.
 	 * - loadFile: initializes a newly selected image file, revokes any previous working URLs, creates a
 	 *   fresh source blob URL, resets image-derived state, and marks detection to run after image load.
+	 * - transitionThenLoadFile: starts the action-row transition, waits for it to finish, then loads a file.
+	 * - loadTryMeImage: downloads the bundled sample image and sends it through the shared transition/load path.
 	 * - handleFileChange: reads the file selected through the upload input and forwards it into the
-	 *   shared file-loading pipeline.
+	 *   transitioned file-loading pipeline.
 	 * - handleDrop: reads the image dropped into the drop zone and forwards it into the shared
-	 *   file-loading pipeline.
+	 *   transitioned file-loading pipeline.
 	 * - handleDragOver: prevents default browser drag behavior so the drop zone can accept files.
 	 */
 	function revokeWorkingUrls() {
@@ -946,15 +969,15 @@ const inputController = createInputController({
 
 	/**
 	 * Core image-processing and preview pipeline.
+	 * - applyInitialSourceZoomToCorners: calculates and applies the initial source zoom/pan that frames
+	 *   a newly detected quadrilateral while keeping its controls visible.
 	 * - runWarpPreview: rebuilds the current ordered corner quad from local corner state, generates
-	 *   a fresh warped preview image, and safely replaces any previous warped blob URL.
+	 *   a fresh warped preview data URL, and revokes any previous blob URL when applicable.
 	 * - applyReturnedCorners: maps backend corner IDs into local corner state, updates the current
 	 *   source-corner positions, and immediately reruns the warp preview.
-	 * - resetSourceZoomState: clears source-panel zoom/freeze/animation state so a new detection result
-	 *   can establish a clean zoom baseline.
 	 * - runSegmentationInBrowser: runs corner inference for the current image, validates the response,
-	 *   updates the segmentation mask and corner state, resets zoom state, and optionally prepares
-	 *   the detected-card auto-zoom when the source view is at the base zoom level.
+	 *   updates the segmentation mask and corner state, applies initial source framing, and marks the
+	 *   controls ready once processing finishes.
 	 * - handleSourceImageLoad: finalizes source-image readiness after the image has rendered, updates
 	 *   layout measurements, reveals the source image, and triggers any pending detection request.
 	 */
@@ -1118,6 +1141,8 @@ const inputController = createInputController({
 	 * Miscellaneous interaction and export helpers.
 	 * - handleSourceTrapKeydown: traps Tab navigation within the source corner controls.
 	 * - handleWarpTrapKeydown: traps Tab navigation within the warped-preview guide controls.
+	 * - miniMapFocusOrder / handleMiniMapTrapKeydown: define clockwise corner/side order and trap Tab
+	 *   navigation within the card-controls minimap while activating the newly focused target.
 	 * - captureWarpPanel: captures the warp preview area as a PNG image using html2canvas, downloads it,
 	 *   and revokes the temporary blob URL after export.
 	 */
@@ -1297,6 +1322,7 @@ const inputController = createInputController({
 	/**
 	 * Derived centering metrics and “perfect alignment” flags used by the UI.
 	 * - centeringStats: computed percentage split for top/bottom and left/right borders.
+	 * - PERFECT_TOLERANCE: maximum percentage-point difference from 50 allowed for a perfect result.
 	 * - verticalIsPerfect: true when vertical guide percentages are essentially 50/50
 	 *   and the user has already adjusted vertical guides.
 	 * - horizontalIsPerfect: true when horizontal guide percentages are essentially 50/50
