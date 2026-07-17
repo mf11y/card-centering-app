@@ -1,3 +1,9 @@
+/**
+ * Stateless global-keyboard routing for active card corners and centering guides.
+ *
+ * This module filters editable targets, maps Escape/Arrow/WASD input to selection and movement
+ * callbacks, and exposes the key-release reset used by consumers that do not need hold timers.
+ */
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export type InputHandlers = {
@@ -12,6 +18,16 @@ export type InputHandlers = {
 	moveActiveGuide: (direction: Direction) => void;
 };
 
+/**
+ * Handles a keyboard event for the currently selected corner or guide.
+ *
+ * Escape clears selection. Arrow and WASD keys nudge a corner by the current pixel step or move
+ * a guide in the matching semantic direction. Keystrokes originating in editable controls are
+ * ignored so typing is never intercepted.
+ *
+ * @param event - Browser keydown event to inspect and optionally consume.
+ * @param handlers - State readers and movement callbacks supplied by the UI.
+ */
 export function handleInputKeydown(event: KeyboardEvent, handlers: InputHandlers) {
 	const target = event.target as HTMLElement | null;
 	const tag = target?.tagName;
@@ -89,6 +105,11 @@ export function handleInputKeydown(event: KeyboardEvent, handlers: InputHandlers
 	}
 }
 
+/**
+ * Clears directional UI state after a handled key is released.
+ *
+ * @param handlers - Consumer callback used to reset the active direction.
+ */
 export function handleInputKeyup(handlers: Pick<InputHandlers, 'setActiveDirection'>) {
 	handlers.setActiveDirection(null);
 }

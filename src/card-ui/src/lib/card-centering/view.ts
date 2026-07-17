@@ -1,3 +1,9 @@
+/**
+ * Source-preview auto-zoom and transform-style calculations.
+ *
+ * This module frames detected corners inside the preview, preserves a user-frozen zoom center,
+ * and converts the resulting scale/translation metrics into the CSS transform used by the UI.
+ */
 import type { Point } from './geometry';
 
 export type Rect = {
@@ -20,6 +26,16 @@ export type CornersState = {
 	bottomLeft: Point;
 };
 
+/**
+ * Computes an automatic transform that enlarges a small detected quad while keeping handles visible.
+ *
+ * Corner coordinates are mapped from natural-image space into the displayed image. The function
+ * targets a comfortable viewport occupancy, then progressively reduces scale until every handle
+ * fits within a safety margin. Already-large quads and disabled auto-zoom use the identity transform.
+ *
+ * @param params - Auto-zoom flag, display rectangle, image dimensions, and source corners.
+ * @returns Scale plus x/y translation in displayed-image pixels.
+ */
 export function computeZoomMetrics(params: {
 	autoZoomToCorners: boolean;
 	displayedImageRect: Rect;
@@ -112,6 +128,15 @@ export function computeZoomMetrics(params: {
 	};
 }
 
+/**
+ * Resolves the effective source-preview transform from frozen or automatic zoom state.
+ *
+ * A frozen transform has priority and reconstructs its center from normalized coordinates so it
+ * remains stable when the display rectangle changes. Otherwise this delegates to auto framing.
+ *
+ * @param params - Frozen state, display geometry, auto-zoom setting, dimensions, and corners.
+ * @returns Effective scale and x/y translation for the source image.
+ */
 export function getZoomMetrics(params: {
 	frozenZoom: FrozenZoom | null;
 	displayedImageRect: Rect;
@@ -153,6 +178,12 @@ export function getZoomMetrics(params: {
 	});
 }
 
+/**
+ * Serializes the effective zoom metrics into an inline CSS transform declaration.
+ *
+ * @param params - Same frozen/automatic zoom inputs accepted by `getZoomMetrics`.
+ * @returns CSS setting a top-left origin followed by translation and scaling.
+ */
 export function getZoomStyle(params: {
 	frozenZoom: FrozenZoom | null;
 	displayedImageRect: Rect;

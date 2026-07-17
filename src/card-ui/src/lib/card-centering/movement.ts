@@ -1,3 +1,9 @@
+/**
+ * Immutable movement calculations for source corners and warped-preview guides.
+ *
+ * These helpers apply pixel or percentage deltas, clamp values to valid image/preview bounds, and
+ * encode the direction semantics that differ for guides attached to opposing edges.
+ */
 import type { GuideKey } from './centering';
 import type { Direction } from './controller';
 
@@ -8,6 +14,17 @@ export type Corners = {
 	bottomRight: { x: number; y: number };
 };
 
+/**
+ * Moves one source-image corner while keeping it within the natural image bounds.
+ *
+ * @param corners - Current corner-coordinate map.
+ * @param cornerKey - Corner to update.
+ * @param dx - Horizontal movement in natural-image pixels.
+ * @param dy - Vertical movement in natural-image pixels.
+ * @param naturalWidth - Maximum valid x coordinate.
+ * @param naturalHeight - Maximum valid y coordinate.
+ * @returns A new corner map with the selected point clamped to the image.
+ */
 export function moveCornerValue(
 	corners: Corners,
 	cornerKey: keyof Corners,
@@ -30,6 +47,15 @@ export function moveCornerValue(
 	};
 }
 
+/**
+ * Applies a signed percentage step to one guide inset without mutating the input map.
+ *
+ * @param guideInsetsPct - Current guide positions as percentages.
+ * @param guideKey - Guide value to update.
+ * @param directionDelta - Signed step multiplier, normally `-1` or `1`.
+ * @param stepPercent - Size of one movement step in percentage points.
+ * @returns A new guide map with the updated value clamped to 0–100.
+ */
 function moveGuidePercentValue(
 	guideInsetsPct: Record<GuideKey, number>,
 	guideKey: GuideKey,
@@ -44,6 +70,18 @@ function moveGuidePercentValue(
 	};
 }
 
+/**
+ * Moves the active guide according to screen-direction input.
+ *
+ * Because each inset is measured inward from its own edge, the same screen direction has opposite
+ * numeric effects on opposing guides. Directions perpendicular to a guide leave state unchanged.
+ *
+ * @param activeGuide - Selected guide, or `null` when no guide is active.
+ * @param direction - Requested screen-space movement direction.
+ * @param guideInsetsPct - Current inset percentages.
+ * @param stepPercent - Movement size in percentage points.
+ * @returns The original map when movement is inapplicable, otherwise an updated guide map.
+ */
 export function applyGuideDirection(
 	activeGuide: GuideKey | null,
 	direction: Direction,

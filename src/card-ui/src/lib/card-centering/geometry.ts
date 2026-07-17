@@ -1,3 +1,9 @@
+/**
+ * Core quadrilateral and projective-geometry utilities used by card detection and warping.
+ *
+ * The helpers normalize corner order, size the corrected card image, solve and manipulate 3×3
+ * homographies, project points between coordinate spaces, and provide common point measurements.
+ */
 export type Point = { x: number; y: number };
 
 export type Matrix3x3 = [
@@ -8,10 +14,23 @@ export type Matrix3x3 = [
 
 export type Quad = [Point, Point, Point, Point];
 
+/**
+ * Computes the Euclidean distance between two points.
+ *
+ * @param a - First point.
+ * @param b - Second point.
+ * @returns Straight-line distance from `a` to `b`.
+ */
 export function distance(a: Point, b: Point) {
     return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+/**
+ * Normalizes four corners to top-left, top-right, bottom-right, bottom-left order.
+ *
+ * @param corners - Four unordered quadrilateral points.
+ * @returns A new tuple in the corner order expected by warp and UI code.
+ */
 export function orderCorners(corners: Quad): Quad {
     // compute center
     const cx = corners.reduce((sum, p) => sum + p.x, 0) / corners.length;
@@ -35,6 +54,12 @@ export function orderCorners(corners: Quad): Quad {
     return [topLeft, topRight, bottomRight, bottomLeft];
 }
 
+/**
+ * Ensures a corner tuple has the expected clockwise orientation while retaining its first point.
+ *
+ * @param corners - Quad expected to begin at its top-left corner.
+ * @returns The original tuple or a tuple with its traversal direction reversed.
+ */
 export function ensureClockwise(corners: Quad): Quad {
     const [tl, tr, br, bl] = corners;
 
@@ -48,6 +73,19 @@ export function ensureClockwise(corners: Quad): Quad {
     return corners;
 }
 
+/**
+ * Chooses corrected-image dimensions that preserve detected size while enforcing a target aspect.
+ *
+ * Opposing side lengths are averaged, then the shorter output dimension is expanded as needed so
+ * no detected card area is cropped. Invalid measurements fall back to 360×504.
+ *
+ * @param tl - Top-left source corner.
+ * @param tr - Top-right source corner.
+ * @param br - Bottom-right source corner.
+ * @param bl - Bottom-left source corner.
+ * @param targetAspect - Desired width-to-height ratio; defaults to a standard card ratio.
+ * @returns Positive integer output width and height.
+ */
 export function computeWarpOutputSize(
     tl: Point,
     tr: Point,
@@ -87,6 +125,14 @@ export function computeWarpOutputSize(
     };
 }
 
+/**
+ * Solves an eight-variable linear system with Gauss-Jordan elimination and partial pivoting.
+ *
+ * @param A - 8×8 coefficient matrix.
+ * @param b - Eight-value result vector.
+ * @returns The eight solved variables.
+ * @throws If the coefficient matrix is singular or numerically unstable.
+ */
 function solveLinearSystem8x8(A: number[][], b: number[]) {
     const n = 8;
     const M = A.map((row, i) => [...row, b[i]]);
@@ -128,6 +174,17 @@ function solveLinearSystem8x8(A: number[][], b: number[]) {
     return M.map((row) => row[n]);
 }
 
+/**
+ * Computes the projective transformation that maps one quadrilateral onto another.
+ *
+ * The last homography coefficient is fixed to one, leaving eight coefficients solved from the
+ * four source/destination point pairs.
+ *
+ * @param src - Source points in matching corner order.
+ * @param dst - Destination points in matching corner order.
+ * @returns A 3×3 homography mapping source coordinates to destination coordinates.
+ * @throws If the point configuration produces a singular system.
+ */
 export function computeHomography(
 	src: Quad,
 	dst: Quad
@@ -155,6 +212,13 @@ export function computeHomography(
     ];
 }
 
+/**
+ * Inverts a 3×3 homography using its adjugate and determinant.
+ *
+ * @param H - Homography to invert.
+ * @returns A matrix mapping in the opposite direction.
+ * @throws If the matrix is singular.
+ */
 export function invertHomography(H: Matrix3x3): Matrix3x3 {
     const [[a, b, c], [d, e, f], [g, h, i]] = H;
 
@@ -180,6 +244,14 @@ export function invertHomography(H: Matrix3x3): Matrix3x3 {
     ];
 }
 
+/**
+ * Projects a Cartesian point through a homography and performs homogeneous normalization.
+ *
+ * @param H - Transformation matrix to apply.
+ * @param x - Input horizontal coordinate.
+ * @param y - Input vertical coordinate.
+ * @returns The projected Cartesian point, or the origin when normalization is degenerate.
+ */
 export function applyHomography(H: Matrix3x3, x: number, y: number): Point {
     const denom = H[2][0] * x + H[2][1] * y + H[2][2];
     if (Math.abs(denom) < 1e-12) {
@@ -192,6 +264,12 @@ export function applyHomography(H: Matrix3x3, x: number, y: number): Point {
     };
 }
 
+/**
+ * Computes the arithmetic center of four quadrilateral corners.
+ *
+ * @param corners - Quad whose points should be averaged.
+ * @returns Mean x/y position of the four corners.
+ */
 export function getQuadCenter(corners: Quad) : Point {
 	return {
 		x: (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4,

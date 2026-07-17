@@ -1,3 +1,10 @@
+/**
+ * Browser-side quadrilateral fitting for segmentation masks.
+ *
+ * This module decodes a returned mask, extracts and simplifies its boundary, builds an initial
+ * four-line fit, and refines the resulting quad against overlap and edge-distance metrics. Public
+ * results are rescaled from the bounded working mask to the mask's original pixel coordinates.
+ */
 import { orderCorners, type Point, type Quad } from './geometry';
 
 type BinaryMask = {
@@ -21,10 +28,24 @@ export type FittedMaskQuad = {
 	};
 };
 
+/**
+ * Computes the signed 2D cross product of the turns from `o` through `a` and `b`.
+ *
+ * @param o - Shared origin of the two vectors.
+ * @param a - Endpoint of the first vector.
+ * @param b - Endpoint of the second vector.
+ * @returns Positive/negative values for opposite turn directions, or zero for collinear points.
+ */
 function cross(o: Point, a: Point, b: Point) {
 	return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
 }
 
+/**
+ * Builds the counterclockwise convex hull of a point cloud with Andrew's monotone-chain algorithm.
+ *
+ * @param points - Boundary points to enclose.
+ * @returns Hull vertices without repeating the starting point.
+ */
 function convexHull(points: Point[]) {
 	if (points.length <= 4) return points;
 
@@ -48,11 +69,25 @@ function convexHull(points: Point[]) {
 	return [...lower, ...upper];
 }
 
+/**
+ * Extracts an inclusive, possibly wrapping section of a circular point array.
+ *
+ * @param points - Circularly ordered points.
+ * @param start - Index of the first included point.
+ * @param end - Index of the last included point.
+ * @returns Points encountered from `start` to `end`, wrapping at the array boundary when needed.
+ */
 function arc(points: Point[], start: number, end: number) {
 	if (start <= end) return points.slice(start, end + 1);
 	return [...points.slice(start), ...points.slice(0, end + 1)];
 }
 
+/**
+ * Fits an infinite least-squares line to a set of points using principal-axis orientation.
+ *
+ * @param points - Points belonging to one estimated card edge.
+ * @returns A point/direction representation of the fitted line, or `null` for fewer than two points.
+ */
 function fitLine(points: Point[]) {
 	if (points.length < 2) return null;
 
@@ -78,6 +113,13 @@ function fitLine(points: Point[]) {
 	return { point: center, direction: { x: Math.cos(angle), y: Math.sin(angle) } };
 }
 
+/**
+ * Finds the intersection of two infinite fitted lines.
+ *
+ * @param a - First line represented by an anchor and unit direction.
+ * @param b - Second line represented by an anchor and unit direction.
+ * @returns Their intersection point, or `null` when the lines are effectively parallel.
+ */
 function intersectLines(
 	a: NonNullable<ReturnType<typeof fitLine>>,
 	b: NonNullable<ReturnType<typeof fitLine>>
@@ -94,6 +136,15 @@ function intersectLines(
 	};
 }
 
+/**
+ * Creates a starting quadrilateral by fitting four edge lines to a boundary's convex hull.
+ *
+ * Extreme hull points divide the perimeter into top, right, bottom, and left arcs. Each arc receives
+ * a least-squares line, whose adjacent intersections form the ordered initial corners.
+ *
+ * @param points - Extracted segmentation-boundary points.
+ * @returns An ordered initial quad, or `null` when a stable four-line fit cannot be formed.
+ */
 function fitInitialQuad(points: Point[]): Quad | null {
 	const hull = convexHull(points);
 	if (hull.length < 4) return null;
@@ -132,6 +183,14 @@ function fitInitialQuad(points: Point[]): Quad | null {
 	return orderCorners(corners as Quad);
 }
 
+/**
+ * Tests whether a point lies inside or on the edge of a convex quadrilateral.
+ *
+ * @param x - Test-point x coordinate.
+ * @param y - Test-point y coordinate.
+ * @param quad - Convex quadrilateral to test.
+ * @returns `true` when all non-collinear edge tests have the same orientation.
+ */
 function pointInQuad(x: number, y: number, quad: Quad) {
 	let sign = 0;
 	for (let i = 0; i < 4; i++) {
@@ -146,6 +205,12 @@ function pointInQuad(x: number, y: number, quad: Quad) {
 	return true;
 }
 
+/**
+ * Computes quadrilateral area with the shoelace formula.
+ *
+ * @param quad - Ordered quadrilateral vertices.
+ * @returns Non-negative area in square pixels.
+ */
 function polygonArea(quad: Quad) {
 	let area = 0;
 	for (let i = 0; i < 4; i++) {
@@ -156,6 +221,14 @@ function polygonArea(quad: Quad) {
 	return Math.abs(area) / 2;
 }
 
+/**
+ * Rejects degenerate, tiny, non-convex, or non-finite quadrilateral candidates.
+ *
+ * @param quad - Candidate quad to validate.
+ * @param width - Working-mask width, used for the minimum-area threshold.
+ * @param height - Working-mask height, used for the minimum-area threshold.
+ * @returns `true` when the candidate is finite, sufficiently large, convex, and has usable sides.
+ */
 function isValidQuad(quad: Quad, width: number, height: number) {
 	if (quad.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
 	if (polygonArea(quad) < Math.max(100, width * height * 0.005)) return false;
@@ -178,6 +251,13 @@ function isValidQuad(quad: Quad, width: number, height: number) {
 	return true;
 }
 
+/**
+ * Measures how closely sampled quadrilateral edges follow the nearest mask boundary.
+ *
+ * @param mask - Binary mask with a precomputed boundary-distance field.
+ * @param quad - Candidate quadrilateral whose four edges should be sampled.
+ * @returns Mean distance from sampled edge points to the segmentation boundary.
+ */
 function sampleEdgeDistance(mask: BinaryMask, quad: Quad) {
 	let total = 0;
 	let samples = 0;
@@ -200,6 +280,16 @@ function sampleEdgeDistance(mask: BinaryMask, quad: Quad) {
 	return total / Math.max(samples, 1);
 }
 
+/**
+ * Scores a candidate quadrilateral against mask coverage and boundary alignment.
+ *
+ * The score rewards intersection-over-union and penalizes candidate spill, missed mask pixels, and
+ * distance from the mask boundary. Invalid candidates are excluded before raster evaluation.
+ *
+ * @param mask - Working binary mask and cached metrics.
+ * @param quad - Candidate quad in working-mask coordinates.
+ * @returns Composite score and component metrics, or `null` for an invalid candidate.
+ */
 function evaluateQuad(mask: BinaryMask, quad: Quad) {
 	if (!isValidQuad(quad, mask.width, mask.height)) return null;
 
@@ -237,6 +327,14 @@ function evaluateQuad(mask: BinaryMask, quad: Quad) {
 	};
 }
 
+/**
+ * Clamps all quad points to the mask bounds and restores canonical corner order.
+ *
+ * @param quad - Candidate points that may extend beyond the mask.
+ * @param width - Working-mask width.
+ * @param height - Working-mask height.
+ * @returns Bounded quad ordered top-left through bottom-left.
+ */
 function clampQuad(quad: Quad, width: number, height: number): Quad {
 	return orderCorners(
 		quad.map((point) => ({
@@ -246,6 +344,18 @@ function clampQuad(quad: Quad, width: number, height: number): Quad {
 	);
 }
 
+/**
+ * Improves an initial quad through coarse-to-fine greedy local search.
+ *
+ * At each step size, candidates move individual corners, translate complete edges along their
+ * normals, translate the whole quad, or uniformly expand/shrink it. The best strict improvement is
+ * retained until convergence or the per-scale pass limit is reached.
+ *
+ * @param mask - Working mask used to validate and score candidates.
+ * @param initial - Initial quadrilateral estimate.
+ * @returns The highest-scoring refined quad with its score and metrics.
+ * @throws If the initial quadrilateral is invalid.
+ */
 function refineQuad(mask: BinaryMask, initial: Quad) {
 	let best = clampQuad(initial, mask.width, mask.height);
 	let bestEvaluation = evaluateQuad(mask, best);
@@ -329,6 +439,17 @@ function refineQuad(mask: BinaryMask, initial: Quad) {
 	return { quad: best, ...bestEvaluation };
 }
 
+/**
+ * Builds an approximate Euclidean distance field from every pixel to the nearest mask boundary.
+ *
+ * Boundary pixels are seeded at zero, then forward and backward chamfer passes propagate axial
+ * and diagonal distances across the image.
+ *
+ * @param data - Flat binary-mask values in row-major order.
+ * @param width - Mask width in pixels.
+ * @param height - Mask height in pixels.
+ * @returns A row-major distance field aligned with `data`.
+ */
 function buildBoundaryDistance(data: Uint8Array, width: number, height: number) {
 	const distance = new Float32Array(width * height);
 	distance.fill(Number.POSITIVE_INFINITY);
@@ -377,6 +498,17 @@ function buildBoundaryDistance(data: Uint8Array, width: number, height: number) 
 	return distance;
 }
 
+/**
+ * Decodes and thresholds a mask image into a bounded binary working representation.
+ *
+ * Large masks are downscaled for predictable browser computation. RGB brightness is thresholded
+ * into binary occupancy, area is counted, and a boundary-distance field is cached for scoring.
+ *
+ * @param maskUrl - Data or remote URL of the segmentation mask image.
+ * @param maxDimension - Maximum working width or height before downscaling.
+ * @returns Binary mask data, distance field, dimensions, area, and original-coordinate scales.
+ * @throws If the image/canvas cannot be decoded or the detected foreground is too small.
+ */
 async function decodeMask(maskUrl: string, maxDimension = 500): Promise<BinaryMask> {
 	const image = new Image();
 	await new Promise<void>((resolve, reject) => {
@@ -416,6 +548,17 @@ async function decodeMask(maskUrl: string, maxDimension = 500): Promise<BinaryMa
 	};
 }
 
+/**
+ * Fits the best supported quadrilateral to a segmentation-mask image.
+ *
+ * The mask is decoded, its four-connected boundary pixels are collected, an initial hull-based
+ * estimate is created, and local search refines the fit. Final corners are returned in the mask's
+ * original resolution rather than its downscaled working resolution.
+ *
+ * @param maskUrl - Data or remote URL containing the segmentation mask.
+ * @returns Ordered fitted corners, composite score, and overlap/edge-distance metrics.
+ * @throws If mask decoding, initial fitting, or refinement cannot produce a valid quadrilateral.
+ */
 export async function fitQuadFromMask(maskUrl: string): Promise<FittedMaskQuad> {
 	const mask = await decodeMask(maskUrl);
 	const boundary: Point[] = [];

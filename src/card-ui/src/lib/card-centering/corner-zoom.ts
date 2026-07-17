@@ -1,4 +1,9 @@
-// src/lib/card-centering/corner-zoom.ts
+/**
+ * Magnified corner-patch rendering for precise quadrilateral editing.
+ *
+ * This module draws a pixel-preserving crop around the selected source corner and overlays the
+ * two adjoining quad edges, a corner marker, and a crosshair to make fine adjustments easier.
+ */
 
 export type CornerKey = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 
@@ -18,6 +23,12 @@ type DrawCornerZoomPatchArgs = {
     outputSize: number;
 };
 
+/**
+ * Finds the corner immediately before a corner in clockwise quad order.
+ *
+ * @param cornerKey - Selected corner key.
+ * @returns The adjacent corner preceding `cornerKey` around the quadrilateral.
+ */
 function getPrevCornerKey(cornerKey: CornerKey): CornerKey {
     if (cornerKey === 'topLeft') return 'bottomLeft';
     if (cornerKey === 'topRight') return 'topLeft';
@@ -25,6 +36,12 @@ function getPrevCornerKey(cornerKey: CornerKey): CornerKey {
     return 'bottomRight';
 }
 
+/**
+ * Finds the corner immediately after a corner in clockwise quad order.
+ *
+ * @param cornerKey - Selected corner key.
+ * @returns The adjacent corner following `cornerKey` around the quadrilateral.
+ */
 function getNextCornerKey(cornerKey: CornerKey): CornerKey {
     if (cornerKey === 'topLeft') return 'topRight';
     if (cornerKey === 'topRight') return 'bottomRight';
@@ -32,6 +49,15 @@ function getNextCornerKey(cornerKey: CornerKey): CornerKey {
     return 'topLeft';
 }
 
+/**
+ * Renders a magnified source-image patch centered on the active quadrilateral corner.
+ *
+ * The crop is drawn without smoothing to retain pixel detail. Adjoining edges are projected into
+ * patch coordinates and drawn with the active corner marker and crosshair. The function returns
+ * without drawing when required DOM elements, dimensions, or selection state are unavailable.
+ *
+ * @param args - Canvas, source image, corner state, crop radius, and output dimensions.
+ */
 export function drawCornerZoomPatch({
     canvas,
     image,
@@ -73,10 +99,22 @@ export function drawCornerZoomPatch({
 
     const scale = outputSize / (patchRadius * 2);
 
+	/**
+	 * Converts a source-image x coordinate into the magnified patch coordinate space.
+	 *
+	 * @param x - Horizontal coordinate in natural-image pixels.
+	 * @returns Horizontal coordinate in output-canvas pixels.
+	 */
     function toPatchX(x: number) {
         return (x - sx) * scale;
     }
 
+	/**
+	 * Converts a source-image y coordinate into the magnified patch coordinate space.
+	 *
+	 * @param y - Vertical coordinate in natural-image pixels.
+	 * @returns Vertical coordinate in output-canvas pixels.
+	 */
     function toPatchY(y: number) {
         return (y - sy) * scale;
     }

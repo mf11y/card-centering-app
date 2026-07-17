@@ -1,3 +1,9 @@
+/**
+ * Shared configuration values for card-centering controls and presentation.
+ *
+ * The exported collections define selectable corner/guide metadata, movement increments, zoom
+ * presets, and the centering threshold consumed by the page and helper modules.
+ */
 export const cornerPads = [
 	{ id: 'topLeft', label: 'Top Left' },
 	{ id: 'topRight', label: 'Top Right' },

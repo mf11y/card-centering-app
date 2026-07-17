@@ -1,7 +1,26 @@
+/**
+ * Browser-side API preparation and inference orchestration.
+ *
+ * This module validates and compresses uploaded images, sends them to the segmentation API,
+ * normalizes the different mask response formats supported by the backend, and converts the
+ * returned mask into source-image corner coordinates by fitting the quadrilateral in-browser.
+ */
 import { fitQuadFromMask } from './mask-geometry';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000/api';
 
+/**
+ * Converts an uploaded image into a bounded JPEG suitable for the inference API.
+ *
+ * The image is resized so its longest side does not exceed `maxLongSide`, then repeatedly
+ * encoded at lower JPEG quality until it meets `maxBytes` or reaches `minQuality`. The returned
+ * scale factors map coordinates in the API image back to the original image.
+ *
+ * @param file - User-selected image file to validate, decode, resize, and encode.
+ * @param options - Optional byte, dimension, and JPEG-quality limits.
+ * @returns The API-ready file, both image dimensions, and coordinate scale factors.
+ * @throws If the input is not an image, cannot be decoded, has invalid dimensions, or cannot be encoded.
+ */
 export async function prepareImageForApi(
 	file: File,
 	{
@@ -100,6 +119,14 @@ export async function prepareImageForApi(
 	}
 }
 
+/**
+ * Extracts a usable segmentation-mask URL from a backend response.
+ *
+ * Data URLs are preferred, followed by supported base64 fields and finally a regular mask URL.
+ *
+ * @param result - Parsed API response whose mask fields may vary by backend version.
+ * @returns A mask data/remote URL, or an empty string when no supported mask is present.
+ */
 export function getSegmentationMaskUrl(result: any): string {
 	if (
 		typeof result?.mask_data_url === 'string' &&
@@ -123,6 +150,17 @@ export function getSegmentationMaskUrl(result: any): string {
 	return '';
 }
 
+/**
+ * Runs the complete corner-inference workflow for an uploaded image.
+ *
+ * The file is prepared for upload, posted to the segmentation endpoint, and the returned mask
+ * is fitted locally. Fitted coordinates are rescaled to the original image and attached to the
+ * API result together with the refinement score and quality metrics.
+ *
+ * @param file - Original user image whose card corners should be inferred.
+ * @returns The backend result enriched with ordered original-image corners and fit metrics.
+ * @throws If preparation, the HTTP request, mask extraction, or quadrilateral fitting fails.
+ */
 export async function inferCorners(file: File) {
 	const prepared = await prepareImageForApi(file, {
 		maxBytes: 300_000,

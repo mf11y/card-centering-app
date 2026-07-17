@@ -1,3 +1,9 @@
+/**
+ * Canvas-based perspective correction for the detected card quadrilateral.
+ *
+ * This module computes an output rectangle, inverse-maps each destination pixel into the source
+ * image through a homography, and uses bilinear sampling to produce a smooth PNG preview.
+ */
 import {
 	computeWarpOutputSize,
 	computeHomography,
@@ -7,6 +13,16 @@ import {
 	type Quad
 } from './geometry';
 
+/**
+ * Samples an RGBA image at fractional coordinates using bilinear interpolation.
+ *
+ * @param src - Flat source RGBA pixel buffer.
+ * @param sw - Source image width in pixels.
+ * @param sh - Source image height in pixels.
+ * @param x - Fractional source x coordinate.
+ * @param y - Fractional source y coordinate.
+ * @returns Interpolated `[red, green, blue, alpha]` channel values.
+ */
 function sampleBilinear(src: Uint8ClampedArray, sw: number, sh: number, x: number, y: number) {
     const x0 = Math.floor(x);
     const y0 = Math.floor(y);
@@ -32,6 +48,17 @@ function sampleBilinear(src: Uint8ClampedArray, sw: number, sh: number, x: numbe
     return out;
 }
 
+/**
+ * Perspective-corrects a source-image quadrilateral into a rectangular PNG data URL.
+ *
+ * Output dimensions follow the target card aspect ratio. Each destination pixel is mapped back
+ * into the original image and sampled bilinearly; samples outside the image become transparent.
+ *
+ * @param image - Fully decoded source image at its natural dimensions.
+ * @param corners - Source corners ordered top-left through bottom-left.
+ * @returns A PNG data URL containing the corrected card image.
+ * @throws If either source or output canvas context cannot be created, or the homography is singular.
+ */
 export function warpImageToDataUrl(image: HTMLImageElement, corners: Quad) {
     const [tl, tr, br, bl] = corners;
 
