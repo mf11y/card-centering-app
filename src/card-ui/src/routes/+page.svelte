@@ -6,7 +6,7 @@
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
 	import { formatPct } from '../lib/card-centering/format';
-	import { inferCorners, getSegmentationMaskUrl } from '../lib/card-centering/api';
+	import { inferCorners } from '../lib/card-centering/api';
 	import { computeZoomMetrics } from '../lib/card-centering/view';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
 
@@ -206,7 +206,7 @@ const inputController = createInputController({
 	 *   positions for SVG overlay placement on the rendered source image.
 	 * - markGuideAdjusted: records whether vertical or horizontal warp guides have been manually touched,
 	 *   which is used for perfect-centering highlight logic.
-	 * - getCornersForBackend: converts local corner state into the backend-friendly corner array shape.
+	 * - getOrderedCorners: converts local corner state into the ordered array shape used by warping.
 	 */
 
 	function getPadButtonClass(direction: Direction) {
@@ -233,7 +233,7 @@ const inputController = createInputController({
 			hasAdjustedHorizontalGuides = true;
 		}
 	}
-	function getCornersForBackend() {
+	function getOrderedCorners() {
 		return [
 			{ id: 'top-left', ...corners.topLeft },
 			{ id: 'top-right', ...corners.topRight },
@@ -973,7 +973,7 @@ const inputController = createInputController({
 	 *   a newly detected quadrilateral while keeping its controls visible.
 	 * - runWarpPreview: rebuilds the current ordered corner quad from local corner state, generates
 	 *   a fresh warped preview data URL, and revokes any previous blob URL when applicable.
-	 * - applyReturnedCorners: maps backend corner IDs into local corner state, updates the current
+	 * - applyReturnedCorners: maps inference corner IDs into local corner state, updates the current
 	 *   source-corner positions, and immediately reruns the warp preview.
 	 * - runSegmentationInBrowser: runs corner inference for the current image, validates the response,
 	 *   updates the segmentation mask and corner state, applies initial source framing, and marks the
@@ -1023,14 +1023,14 @@ const inputController = createInputController({
 	function runWarpPreview() {
 		if (!imageEl) return;
 
-		const backendCorners = getCornersForBackend();
-		if (!backendCorners) return;
+		const orderedCorners = getOrderedCorners();
+		if (!orderedCorners) return;
 
 		const unordered: Quad = [
-			{ x: backendCorners[0].x, y: backendCorners[0].y },
-			{ x: backendCorners[1].x, y: backendCorners[1].y },
-			{ x: backendCorners[2].x, y: backendCorners[2].y },
-			{ x: backendCorners[3].x, y: backendCorners[3].y }
+			{ x: orderedCorners[0].x, y: orderedCorners[0].y },
+			{ x: orderedCorners[1].x, y: orderedCorners[1].y },
+			{ x: orderedCorners[2].x, y: orderedCorners[2].y },
+			{ x: orderedCorners[3].x, y: orderedCorners[3].y }
 		];
 
 		const corners = ensureClockwise(orderCorners(unordered));
@@ -1081,12 +1081,12 @@ const inputController = createInputController({
 			if (segmentationMaskUrl?.startsWith('blob:')) {
 				URL.revokeObjectURL(segmentationMaskUrl);
 			}
-			segmentationMaskUrl = getSegmentationMaskUrl(result);
+			segmentationMaskUrl = result.mask_data_url;
 
-			console.log('API corners raw', result.corners);
+			console.log('Browser inference corners', result.corners);
 
 			if (!result.ok || !result.corners) {
-				throw new Error('API did not return corners');
+				throw new Error('Browser inference did not return corners');
 			}
 
 			if (
@@ -1094,7 +1094,7 @@ const inputController = createInputController({
 				result.corners.length !== 4 ||
 				result.corners.some((c: any) => !Number.isFinite(c.x) || !Number.isFinite(c.y))
 			) {
-				throw new Error('API returned invalid corners');
+				throw new Error('Browser inference returned invalid corners');
 			}
 
 			applyReturnedCorners(result.corners);
