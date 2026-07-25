@@ -49,7 +49,7 @@ async function getRuntime() {
  */
 async function getSession() {
 	if (!sessionPromise) {
-		sessionPromise = (async () => {
+		const pendingSession = (async () => {
 			const ort = await getRuntime();
 			if ('gpu' in navigator) {
 				try {
@@ -67,9 +67,25 @@ async function getSession() {
 				graphOptimizationLevel: 'all'
 			});
 		})();
+		sessionPromise = pendingSession;
+		pendingSession.catch(() => {
+			if (sessionPromise === pendingSession) sessionPromise = null;
+		});
 	}
 
 	return sessionPromise;
+}
+
+/**
+ * Starts downloading and initializing the shared segmentation model before it is needed.
+ *
+ * Calling this more than once is safe because every caller reuses the same cached session promise.
+ * A failed preload clears the cached promise so a later user-triggered inference can retry.
+ *
+ * @returns A promise that resolves when the ONNX inference session is ready.
+ */
+export async function preloadInferenceModel() {
+	await getSession();
 }
 
 /**

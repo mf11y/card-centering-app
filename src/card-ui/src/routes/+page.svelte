@@ -6,7 +6,7 @@
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
 	import { formatPct } from '../lib/card-centering/format';
-	import { inferCorners } from '../lib/card-centering/api';
+	import { inferCorners, preloadInferenceModel } from '../lib/card-centering/api';
 	import { computeZoomMetrics } from '../lib/card-centering/view';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
 
@@ -1463,11 +1463,16 @@ const inputController = createInputController({
 	 * Component lifecycle hooks.
 	 * - onDestroy: performs final cleanup when the page/component is removed by revoking active blob URLs,
 	 *   clearing pending warp-refresh timers, and detaching any global pointer listeners left from an active guide drag.
-	 * - onMount: initializes the shared ResizeObserver and global keyboard listeners once the component is mounted,
-	 *   then returns a cleanup function that disconnects observers, removes listeners, and destroys the input controller.
+	 * - onMount: starts loading the browser inference model, initializes the shared ResizeObserver and global
+	 *   keyboard listeners, then returns cleanup that disconnects observers, removes listeners, and destroys
+	 *   the input controller.
 	 */
 
 	onMount(() => {
+		void preloadInferenceModel().catch((error) => {
+			console.warn('Could not preload the browser inference model; upload will retry.', error);
+		});
+
 		resizeObserver = new ResizeObserver(() => {
 			updateSize();
 			updateWarpDisplayedImageRect();
