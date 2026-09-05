@@ -2103,7 +2103,7 @@ const inputController = createInputController({
 								        <strong class="text-zinc-200">Fine-tune.</strong>
 								        Select a corner or side on the mini map: corners control Source, sides control
 								        the inner guides in Warp Preview. Drag the handles or nudge with WASD, arrow keys,
-								        or the arrow pad. Lower Step Size for finer moves. Ctrl + mouse wheel zooms each preview.
+								        or the arrow pad. Lower Step Size for finer moves. Use the mouse scroll wheel over either Source or Warp Preview to zoom in and out.
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Read the split.</strong>
