@@ -4,6 +4,7 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
 	import type { Quad } from '../lib/card-centering/geometry';
+	import { guessInnerBorders } from '../lib/card-centering/inner-border';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
 	import { formatPct } from '../lib/card-centering/format';
@@ -102,6 +103,8 @@ const inputController = createInputController({
 		left: 5,
 		right: 5
 	});
+	let initialGuidesPending = true;
+	let guideGuessGeneration = 0;
 	let stepSize = $state(0.1);
 
 // ---- Layout measurements and DOM refs ----
@@ -867,6 +870,8 @@ const inputController = createInputController({
 	}
 
 	function resetAdjustmentState() {
+		initialGuidesPending = true;
+		guideGuessGeneration++;
 		selectTarget(null);
 
 		corners = {
@@ -1045,6 +1050,21 @@ const inputController = createInputController({
 			}
 
 			warpedImageUrl = nextUrl;
+            if (initialGuidesPending) {
+                initialGuidesPending = false;
+                const generation = guideGuessGeneration;
+                void guessInnerBorders(nextUrl, { ...guideInsetsPct }).then((guess) => {
+                    if (generation !== guideGuessGeneration || warpedImageUrl !== nextUrl) return;
+                    if (!hasAdjustedVerticalGuides) {
+                        guideInsetsPct.top = guess.top;
+                        guideInsetsPct.bottom = guess.bottom;
+                    }
+                    if (!hasAdjustedHorizontalGuides) {
+                        guideInsetsPct.left = guess.left;
+                        guideInsetsPct.right = guess.right;
+                    }
+                }).catch(() => { /* Keep editable default guides if the image cannot be read. */ });
+            }
 		} catch (error) {
 			console.error('Frontend warp failed:', error);
 		}
