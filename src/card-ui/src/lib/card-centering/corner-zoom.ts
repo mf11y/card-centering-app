@@ -124,7 +124,7 @@ export function drawCornerZoomPatch({
 
     ctx.strokeStyle = '#22d3ee';
     ctx.lineWidth = 2;
-    ctx.setLineDash([10, 8]);
+    ctx.setLineDash([]);
     ctx.lineCap = 'round';
 
     ctx.beginPath();

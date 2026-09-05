@@ -59,7 +59,7 @@ function sampleBilinear(src: Uint8ClampedArray, sw: number, sh: number, x: numbe
  * @returns A PNG data URL containing the corrected card image.
  * @throws If either source or output canvas context cannot be created, or the homography is singular.
  */
-export function warpImageToDataUrl(image: HTMLImageElement, corners: Quad) {
+export function warpImageToDataUrl(image: HTMLImageElement, corners: Quad, sourceMap?: (x:number,y:number)=>Point) {
     const [tl, tr, br, bl] = corners;
 
     const { width: outWidth, height: outHeight } = computeWarpOutputSize(tl, tr, br, bl);
@@ -104,7 +104,7 @@ export function warpImageToDataUrl(image: HTMLImageElement, corners: Quad) {
 
     for (let y = 0; y < outHeight; y++) {
         for (let x = 0; x < outWidth; x++) {
-            const srcPt = applyHomography(Hinv, x + 0.5, y + 0.5);
+            const srcPt = sourceMap ? sourceMap(x + 0.5, y + 0.5) : applyHomography(Hinv, x + 0.5, y + 0.5);
 
             const outIdx = (y * outWidth + x) * 4;
 

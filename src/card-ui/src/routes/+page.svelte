@@ -1,4 +1,48 @@
 <script lang="ts">
+    import CurvedEdgeOverlay from '$lib/card-centering/CurvedEdgeOverlay.svelte';
+    import { emptyBow, curve, clampBow, sides } from '$lib/card-centering/curved-edge';
+    import { renderCurved } from '$lib/card-centering/curved-renderer';
+    let curvedFallback = $state(false);
+    let curvedHelpTimer: ReturnType<typeof setTimeout> | undefined;
+    function openCurvedHelp() {
+        clearTimeout(curvedHelpTimer);
+        const popup=document.getElementById('curved-assist-help');
+        if(popup && !popup.matches(':popover-open')) popup.showPopover();
+        positionCurvedHelp();
+    }
+    function closeCurvedHelpSoon() {
+        clearTimeout(curvedHelpTimer);
+        curvedHelpTimer=setTimeout(()=>{
+            const popup=document.getElementById('curved-assist-help');
+            if(popup && !popup.matches(':hover') && !popup.contains(document.activeElement)) popup.hidePopover();
+        },180);
+    }
+    function positionCurvedHelp() {
+        const popup=document.getElementById('curved-assist-help');
+        const trigger=document.querySelector('[aria-label="About Curved Edge Assist"]');
+        if(!popup?.matches(':popover-open') || !trigger)return;
+        const r=trigger.getBoundingClientRect(),w=popup.offsetWidth,h=popup.offsetHeight;
+        popup.style.left=`${Math.max(12,Math.min(r.left,window.innerWidth-w-12))}px`;
+        const below=r.bottom+8;
+        popup.style.top=`${Math.max(12,Math.min(below+h<=window.innerHeight-12?below:r.top-h-8,window.innerHeight-h-12))}px`;
+    }
+    $effect(()=>{
+        window.addEventListener('scroll',positionCurvedHelp,true);
+        window.addEventListener('resize',positionCurvedHelp);
+        return ()=>{window.removeEventListener('scroll',positionCurvedHelp,true);window.removeEventListener('resize',positionCurvedHelp);};
+    });
+    let curvedAssist = $state(false);
+    let edgeBows = $state(emptyBow());
+    $effect(() => {
+        curvedAssist; edgeBows.top; edgeBows.right; edgeBows.bottom; edgeBows.left;
+        const frame=requestAnimationFrame(()=>{if(imageEl && warpedImageUrl)runWarpPreview();});
+        const settle=setTimeout(()=>{
+            if(imageEl && warpedImageUrl) { initialGuidesPending=true; guideGuessGeneration++; runWarpPreview(); }
+        },180);
+        return ()=>{cancelAnimationFrame(frame);clearTimeout(settle);};
+    });
+
+
 	import Tutorial from "../lib/tutorial/Tutorial.svelte";
 	let tutorialActive = $state(false);
     let howToUseOpen = $state(false);
@@ -98,6 +142,7 @@ const inputController = createInputController({
 	type ControlTarget =
 		| { type: 'corner'; key: keyof typeof corners }
 		| { type: 'guide'; key: GuideKey }
+        | { type: 'bow'; key: GuideKey }
 		| null;
 	let selectedTarget = $state<ControlTarget>(null);
 	let guideInsetsPct = $state({
@@ -332,7 +377,7 @@ const inputController = createInputController({
 			return;
 		}
 
-		activeGuide = target.key;
+		activeGuide = target.type === 'guide' ? target.key : null;
 		activeCorner = null;
 	}
 	function clearActiveSelection() {
@@ -360,6 +405,13 @@ const inputController = createInputController({
 	function nudgeSelected(direction: 'up' | 'down' | 'left' | 'right') {
 		if (!selectedTarget) return;
 
+        if (selectedTarget.type === 'bow') {
+            if(!curvedAssist)return;
+            const key=selectedTarget.key,i=sides.indexOf(key),q=[corners.topLeft,corners.topRight,corners.bottomRight,corners.bottomLeft];
+            const c=curve(q[i],q[(i+1)%4],edgeBows[key]),d=getCornerDelta(direction);
+            edgeBows={...edgeBows,[key]:clampBow(edgeBows[key]+(d.dx*c.normal.x+d.dy*c.normal.y)/(c.length||1))};
+            return;
+        }
 		if (selectedTarget.type === 'corner') {
 			const key = selectedTarget.key;
 
@@ -878,6 +930,7 @@ const inputController = createInputController({
 	}
 
 	function resetDerivedImageState() {
+        curvedAssist = false; edgeBows = emptyBow();
 		warpedImageUrl = '';
 		segmentationMaskUrl = '';
 
@@ -892,6 +945,7 @@ const inputController = createInputController({
 	}
 
 	function resetAdjustmentState() {
+        curvedAssist = false; edgeBows = emptyBow();
 		initialGuidesPending = true;
 		guideGuessGeneration++;
 		selectTarget(null);
@@ -1065,7 +1119,10 @@ const inputController = createInputController({
 		const corners = ensureClockwise(orderCorners(unordered));
 
 		try {
-			const nextUrl = warpImageToDataUrl(imageEl, corners);
+			const result = curvedAssist ? renderCurved(imageEl, corners, edgeBows) : null;
+            curvedFallback = result?.fallback ?? false;
+            const nextUrl = result?.url ?? warpImageToDataUrl(imageEl, corners);
+            if(import.meta.env.DEV && result) Object.assign(imageEl,{curvedRenderDiagnostics:{backend:result.backend,ms:result.ms,fallback:result.fallback}});
 
 			if (warpedImageUrl?.startsWith('blob:')) {
 				URL.revokeObjectURL(warpedImageUrl);
@@ -1610,6 +1667,7 @@ const inputController = createInputController({
 				>
 					<span class="theme-swatch" aria-hidden="true"></span>
 				</button>
+
 				<div class="text-right">
 					<h1 class="text-2xl font-semibold tracking-tight">Card Centering</h1>
 					<p class="text-sm text-zinc-400">Upload, detect, refine, and warp</p>
@@ -2193,6 +2251,29 @@ const inputController = createInputController({
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source</h2>
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
+                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+                                <label class="curved-assist-toggle">
+                                    <input type="checkbox" role="switch" bind:checked={curvedAssist} />
+                                    <span class="curved-assist-track" aria-hidden="true"><span></span></span>
+                                    <span>Curved Edge Assist</span>
+                                </label>
+                                <button type="button" popovertarget="curved-assist-help" popovertargetaction="show" aria-label="About Curved Edge Assist"
+                                    onpointerenter={(e)=>{if(e.pointerType==='mouse')openCurvedHelp();}} onpointerleave={(e)=>{if(e.pointerType==='mouse')closeCurvedHelpSoon();}}
+                                    onfocus={openCurvedHelp} onblur={closeCurvedHelpSoon} class="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-600 text-xs text-zinc-300 hover:border-cyan-400 hover:text-cyan-300">?</button>
+                                {#if curvedAssist}<button type="button" class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300" onclick={()=>edgeBows=emptyBow()}>Reset bows</button>{/if}
+                            </div>
+                            <div id="curved-assist-help" role="dialog" aria-label="Curved Edge Assist help" popover="auto" ontoggle={positionCurvedHelp} class="curved-assist-help"
+                                onpointerenter={()=>clearTimeout(curvedHelpTimer)} onpointerleave={closeCurvedHelpSoon}>
+                                <div class="mb-3 flex items-center justify-between gap-3">
+                                    <strong>Curved Edge Assist</strong>
+                                    <button type="button" popovertarget="curved-assist-help" popovertargetaction="hide" aria-label="Close curved edge help" class="rounded border border-zinc-600 px-2 py-1">Close</button>
+                                </div>
+                                <p>Drag an edge arrow to fit a mild bow. The cyan outline is the fitted edge mapped to the rectangular WARP. Select an edge arrow, then drag or nudge it with the directional pad. <span class="hidden xl:inline">Keyboard: WASD or arrow keys.</span> Step Size controls each nudge. Review inner guides after changing the bow; manual guides stay where you placed them.</p>
+                            </div>
+                            {#if curvedAssist}
+                                {#if curvedFallback}<p role="status" class="mt-2 text-xs text-amber-300">Curve mapping was unsafe; showing the normal perspective warp.</p>{/if}
+
+                            {/if}
 						</div>
 					</div>
 
@@ -2300,7 +2381,7 @@ const inputController = createInputController({
 														onload={() => handleSourceImageLoad()}
 													/>
 
-													<svg class="pointer-events-none absolute inset-0 h-full w-full">
+													<svg class="pointer-events-none absolute inset-0 h-full w-full" style:display={curvedAssist ? 'none' : undefined}>
 														<line
 															x1={imageXToPercent(corners.topLeft.x)}
 															y1={imageYToPercent(corners.topLeft.y)}
@@ -2308,7 +2389,7 @@ const inputController = createInputController({
 															y2={imageYToPercent(corners.topRight.y)}
 															stroke="#22d3ee"
 															stroke-width="2"
-															stroke-dasharray="8 6"
+															stroke-dasharray="none"
 															opacity="1"
 														/>
 
@@ -2319,7 +2400,7 @@ const inputController = createInputController({
 															y2={imageYToPercent(corners.bottomRight.y)}
 															stroke="#22d3ee"
 															stroke-width="2"
-															stroke-dasharray="8 6"
+															stroke-dasharray="none"
 															opacity="1"
 														/>
 
@@ -2330,7 +2411,7 @@ const inputController = createInputController({
 															y2={imageYToPercent(corners.bottomLeft.y)}
 															stroke="#22d3ee"
 															stroke-width="2"
-															stroke-dasharray="8 6"
+															stroke-dasharray="none"
 															opacity="1"
 														/>
 
@@ -2341,11 +2422,14 @@ const inputController = createInputController({
 															y2={imageYToPercent(corners.topLeft.y)}
 															stroke="#22d3ee"
 															stroke-width="2"
-															stroke-dasharray="8 6"
+															stroke-dasharray="none"
 															opacity="1"
 														/>
 													</svg>
-													{#if warpedImageUrl && !isSegmenting}
+													{#if curvedAssist && warpedImageUrl && !isSegmenting && imageEl}
+                                                        <CurvedEdgeOverlay activeSide={selectedTarget?.type === 'bow' ? selectedTarget.key : null} onselect={(key)=>selectTarget({type:'bow',key})} quad={[corners.topLeft,corners.topRight,corners.bottomRight,corners.bottomLeft]} bind:bows={edgeBows} width={imageEl.naturalWidth} height={imageEl.naturalHeight} zoom={sourceViewZoom} />
+                                                    {/if}
+                                                    {#if warpedImageUrl && !isSegmenting}
 														{#each cornerOverlayItems as corner}
 															<button
 															type="button"
@@ -2449,7 +2533,7 @@ const inputController = createInputController({
 									}`}
 								>
 									<div
-										class="corner-zoom-frame pointer-events-none relative border-2 border-dotted border-cyan-400 p-0"
+										class="corner-zoom-frame pointer-events-none relative border-2 border-solid border-cyan-400 p-0"
 										style="box-shadow: 0 4px 12px rgba(0,0,0,0.5);"
 									>
 										<canvas
@@ -2589,13 +2673,13 @@ const inputController = createInputController({
 							<div data-tour="arrows" class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
-									disabled={selectedTarget?.type !== 'corner'}
+									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
                                     class={getPadButtonClass('up')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										if (selectedTarget?.type === 'corner') inputController.startPadHold('up');
+										if (selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow') inputController.startPadHold('up');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2606,13 +2690,13 @@ const inputController = createInputController({
 								<div></div>
 
 								<button
-									disabled={selectedTarget?.type !== 'corner'}
+									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
                                     class={getPadButtonClass('left')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										if (selectedTarget?.type === 'corner') inputController.startPadHold('left');
+										if (selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow') inputController.startPadHold('left');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2633,13 +2717,13 @@ const inputController = createInputController({
 								</button>
 
 								<button
-									disabled={selectedTarget?.type !== 'corner'}
+									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
                                     class={getPadButtonClass('right')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										if (selectedTarget?.type === 'corner') inputController.startPadHold('right');
+										if (selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow') inputController.startPadHold('right');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2650,13 +2734,13 @@ const inputController = createInputController({
 
 								<div></div>
 								<button
-									disabled={selectedTarget?.type !== 'corner'}
+									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
                                     class={getPadButtonClass('down')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										if (selectedTarget?.type === 'corner') inputController.startPadHold('down');
+										if (selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow') inputController.startPadHold('down');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2936,7 +3020,7 @@ const inputController = createInputController({
 													y2={topPx}
 													stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
 													stroke-width={2 / warpViewZoom}
-													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
+													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
 
@@ -2947,7 +3031,7 @@ const inputController = createInputController({
 													y2={warpDisplayedImageRect.height - bottomPx}
 													stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
 													stroke-width={2 / warpViewZoom}
-													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
+													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
 
@@ -2958,7 +3042,7 @@ const inputController = createInputController({
 													y2={warpDisplayedImageRect.height}
 													stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
 													stroke-width={2 / warpViewZoom}
-													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
+													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
 
@@ -2969,7 +3053,7 @@ const inputController = createInputController({
 													y2={warpDisplayedImageRect.height}
 													stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
 													stroke-width={2 / warpViewZoom}
-													stroke-dasharray={`${10 / warpViewZoom} ${8 / warpViewZoom}`}
+													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
 											</svg>
@@ -3458,6 +3542,17 @@ const inputController = createInputController({
 </div>
 
 <style>
+    .curved-assist-toggle { position:relative; display:inline-flex; align-items:center; gap:9px; cursor:pointer; user-select:none; min-height:28px; }
+    .curved-assist-toggle input { position:absolute; width:1px; height:1px; opacity:0; }
+    .curved-assist-track { display:flex; align-items:center; width:34px; height:20px; padding:3px; border:1px solid var(--color-zinc-600); border-radius:999px; background:var(--color-zinc-950); box-sizing:border-box; }
+    .curved-assist-track > span { width:12px; height:12px; flex-shrink:0; border-radius:50%; background:var(--color-zinc-400); transition:transform 160ms ease; }
+    .curved-assist-toggle:hover .curved-assist-track { border-color:#22d3ee; }
+    .curved-assist-toggle input:checked + .curved-assist-track { background:linear-gradient(135deg,#155e75,#0891b2); border-color:#22d3ee; box-shadow:0 0 9px rgb(34 211 238 / 20%); }
+    .curved-assist-toggle input:checked + .curved-assist-track > span { transform:translateX(14px); background:#ecfeff; }
+    .curved-assist-toggle input:focus-visible + .curved-assist-track { outline:2px solid #67e8f9; outline-offset:3px; }
+    @media(prefers-reduced-motion:reduce) { .curved-assist-track > span { transition:none; } }
+
+    .curved-assist-help { position:fixed; inset:auto; margin:0; max-height:calc(100dvh - 24px); overflow:auto; width:min(360px, calc(100vw - 32px)); padding:18px; border:1px solid var(--color-zinc-600); border-radius:12px; background:var(--color-zinc-900); color:var(--color-zinc-300); font-size:12px; line-height:1.6; box-shadow:0 12px 40px #0008; }
     .how-to-use-content { display:none; }
     .how-to-use-content.instructions-open { display:block; }
     @media(min-width:1280px) { .how-to-use-content { display:block; } }
