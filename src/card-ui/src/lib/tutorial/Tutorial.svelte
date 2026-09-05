@@ -113,7 +113,12 @@
         <button class="tour-collapse" type="button" aria-expanded={!collapsed} onclick={() => collapsed = !collapsed}>{collapsed ? 'Show tip' : 'Hide tip'}</button>
         <div hidden={collapsed} aria-live="polite" aria-atomic="true">
             <h2>{current.title}</h2>
-            <p>{current.text}{#if step === 5}
+            <p>{#if 'mobileText' in current}
+                <span class="tour-desktop-copy">{current.text}</span>
+                <span class="tour-mobile-copy">{current.mobileText}</span>
+            {:else}{current.text}{/if}{#if step === 4}
+                <span class="tour-desktop-zoom"> You can also nudge with WASD or keyboard arrow keys.</span>
+            {/if}{#if step === 5}
                 <span class="tour-desktop-zoom"> Use the mouse scroll wheel over either preview to zoom.</span>
                 <span class="tour-mobile-zoom"> Spread two fingers apart to zoom in; pinch them together to zoom out on either preview.</span>
             {/if}</p>
@@ -136,8 +141,9 @@
 {/if}
 
 <style>
-    .tour-mobile-zoom { display:none; }
-    @media(max-width:1279px) { .tour-desktop-zoom { display:none; } .tour-mobile-zoom { display:inline; } }
+    .tour-mobile-copy,.tour-mobile-zoom { display:none; }
+    @media(max-width:1279px) { .tour-desktop-copy { display:none; } .tour-mobile-copy { display:inline; } }
+    @media(pointer:coarse) { .tour-desktop-zoom { display:none; } .tour-mobile-zoom { display:inline; } }
     .tour-spotlight { position:fixed; z-index:60; pointer-events:none; border:2px solid #22d3ee; border-radius:10px; box-shadow:0 0 0 9999px rgb(0 0 0 / 32%), 0 0 14px rgb(34 211 238 / 35%); }
     .tour-callout { position:fixed; z-index:70; width:min(320px, calc(100vw - 24px)); box-sizing:border-box; padding:16px; border:1px solid #22d3ee; border-radius:12px; background:var(--color-zinc-900); color:var(--color-zinc-100); box-shadow:0 8px 32px #0008; font-size:13px; line-height:1.5; max-height:calc(100dvh - 24px); overflow:auto; }
     .tour-heading,.tour-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
