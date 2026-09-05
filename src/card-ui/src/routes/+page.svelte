@@ -2755,7 +2755,7 @@ const inputController = createInputController({
 								<div
 									class={`rounded-lg border bg-zinc-950/60 p-4 transition ${
 										verticalIsPerfect
-											? 'border-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.65)]'
+											? 'centering-rgb-glow'
 											: 'border-zinc-800'
 									}`}
 								>
@@ -2765,13 +2765,13 @@ const inputController = createInputController({
 											<div
 												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
 													verticalIsPerfect
-														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														? 'centering-rgb-value'
 														: centeringStats.topPct > ALERT_THRESHOLD
 															? 'text-red-400'
 															: 'text-zinc-100'
 												}`}
 											>
-												{formatPct(centeringStats.topPct)}
+												{warpedImageUrl ? formatPct(centeringStats.topPct) : '--.-%'}
 											</div>
 										</div>
 
@@ -2780,13 +2780,13 @@ const inputController = createInputController({
 											<div
 												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
 													verticalIsPerfect
-														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														? 'centering-rgb-value'
 														: centeringStats.bottomPct > ALERT_THRESHOLD
 															? 'text-red-400'
 															: 'text-zinc-100'
 												}`}
 											>
-												{formatPct(centeringStats.bottomPct)}
+												{warpedImageUrl ? formatPct(centeringStats.bottomPct) : '--.-%'}
 											</div>
 										</div>
 
@@ -2820,7 +2820,7 @@ const inputController = createInputController({
 								<div
 									class={`rounded-lg border bg-zinc-950/60 p-4 transition ${
 										horizontalIsPerfect
-											? 'border-yellow-300 shadow-[0_0_18px_rgba(250,204,21,0.65)]'
+											? 'centering-rgb-glow'
 											: 'border-zinc-800'
 									}`}
 								>
@@ -2830,13 +2830,13 @@ const inputController = createInputController({
 											<div
 												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
 													horizontalIsPerfect
-														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														? 'centering-rgb-value'
 														: centeringStats.leftPct > ALERT_THRESHOLD
 															? 'text-red-400'
 															: 'text-zinc-100'
 												}`}
 											>
-												{formatPct(centeringStats.leftPct)}
+												{warpedImageUrl ? formatPct(centeringStats.leftPct) : '--.-%'}
 											</div>
 										</div>
 
@@ -2845,13 +2845,13 @@ const inputController = createInputController({
 											<div
 												class={`mt-2 text-xl sm:text-2xl font-semibold transition ${
 													horizontalIsPerfect
-														? 'text-yellow-300 drop-shadow-[0_0_8px_rgba(250,204,21,0.9)]'
+														? 'centering-rgb-value'
 														: centeringStats.rightPct > ALERT_THRESHOLD
 															? 'text-red-400'
 															: 'text-zinc-100'
 												}`}
 											>
-												{formatPct(centeringStats.rightPct)}
+												{warpedImageUrl ? formatPct(centeringStats.rightPct) : '--.-%'}
 											</div>
 										</div>
 
@@ -3460,6 +3460,84 @@ const inputController = createInputController({
 </div>
 
 <style>
+	:global(.centering-rgb-glow) {
+		position: relative;
+		isolation: isolate;
+		border-color: transparent;
+		background: #101014;
+		box-shadow: -8px -3px 18px -5px rgb(255 79 163 / 85%),
+			0 8px 20px -6px rgb(217 70 239 / 75%),
+			8px -3px 20px -5px rgb(124 58 237 / 90%);
+		animation: centering-halo-orbit 3s linear infinite;
+	}
+
+	:global(.centering-rgb-glow)::before,
+	:global(.centering-rgb-glow)::after {
+		content: '';
+		position: absolute;
+		inset: -2px;
+		border-radius: inherit;
+		padding: 2px;
+		pointer-events: none;
+		background-image: linear-gradient(90deg, #ff4fa3 0%, #ff80d5 17%, #e040fb 33%, #a855f7 50%, #7c3aed 67%, #d946ef 83%, #ff4fa3 100%);
+		background-size: 240px 100%;
+		background-repeat: repeat-x;
+		mask: linear-gradient(#fff 0 0) content-box exclude, linear-gradient(#fff 0 0);
+		animation: centering-rgb-flow 2s linear infinite;
+	}
+
+	:global(.centering-rgb-glow)::before {
+		filter: blur(7px);
+		opacity: 0.95;
+	}
+
+	:global(.centering-rgb-glow)::after {
+		box-shadow: -7px 0 18px -8px #ff4fa3,
+			0 7px 18px -8px #d946ef,
+			7px 0 18px -8px #7c3aed;
+	}
+
+	:global(.centering-rgb-glow)::after {
+		filter: drop-shadow(-4px 0 5px #ff4fa3) drop-shadow(4px 0 5px #7c3aed);
+	}
+
+	:global(.centering-rgb-value) {
+		color: transparent;
+		background-image: linear-gradient(90deg, #ff4fa3 0%, #ff80d5 17%, #e040fb 33%, #a855f7 50%, #7c3aed 67%, #d946ef 83%, #ff4fa3 100%);
+		background-size: 240px 100%;
+		background-repeat: repeat-x;
+		background-clip: text;
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		text-shadow: none;
+		filter: drop-shadow(0 0 2px rgb(255 128 213 / 45%))
+			drop-shadow(0 0 5px rgb(164 85 247 / 30%));
+		animation: centering-rgb-flow 2s linear infinite;
+	}
+
+	@keyframes -global-centering-halo-orbit {
+		0%, 100% {
+			box-shadow: -8px -3px 18px -5px rgb(255 79 163 / 85%),
+				0 8px 20px -6px rgb(217 70 239 / 75%),
+				8px -3px 20px -5px rgb(124 58 237 / 90%);
+		}
+		33.333% {
+			box-shadow: 0 8px 18px -5px rgb(255 79 163 / 85%),
+				8px -3px 20px -6px rgb(217 70 239 / 75%),
+				-8px -3px 20px -5px rgb(124 58 237 / 90%);
+		}
+		66.667% {
+			box-shadow: 8px -3px 18px -5px rgb(255 79 163 / 85%),
+				-8px -3px 20px -6px rgb(217 70 239 / 75%),
+				0 8px 20px -5px rgb(124 58 237 / 90%);
+		}
+	}
+
+	@keyframes -global-centering-rgb-flow {
+		from { background-position: 0px 50%; }
+		to { background-position: 240px 50%; }
+	}
+
 	:global(.arrow-breathe) {
 		animation: arrow-breathe 1.4s ease-in-out infinite !important;
 		transform-origin: center;
