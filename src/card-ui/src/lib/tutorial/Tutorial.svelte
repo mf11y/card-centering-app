@@ -10,6 +10,7 @@
     let box = $state({ x: 0, y: 0, width: 0, height: 0 });
     let placement = $state({ x: 12, y: 12 });
     let found = $state(false);
+    let sourceBox = $state<{ x:number; y:number; width:number; height:number } | null>(null);
     let wasActive = false;
     let hadImage = false;
     const current = $derived(tutorialSteps[step]);
@@ -45,8 +46,8 @@
         let disposed = false;
         let target: HTMLElement | undefined;
         const sourceControls = step === 2 || step === 3 || step === 4;
-        const warpSteps = step === 5 || step === 6;
-        const readCentering = () => (step === 7 || step === 8) && window.innerWidth < 1280;
+        const warpSteps = step === 5 || step === 6 || step === 7;
+        const readCentering = () => (step === 8 || step === 9) && window.innerWidth < 1280;
         const stackedControls = () => (sourceControls || warpSteps) && window.innerWidth < 1280;
         function position() {
             if (disposed || !panel) return;
@@ -55,6 +56,8 @@
             if (!target) return;
             const r = target.getBoundingClientRect();
             box = { x: r.left - 4, y: r.top - 4, width: r.width + 8, height: r.height + 8 };
+            const source = step === 4 || step === 7 ? document.querySelector<HTMLElement>(step === 4 ? '[data-tour="source"]' : '[data-tour="warp"]')?.getBoundingClientRect() : null;
+            sourceBox = source ? { x:source.left - 4, y:source.top - 4, width:source.width + 8, height:source.height + 8 } : null;
             const pw = panel.offsetWidth, ph = panel.offsetHeight;
             const vw = window.innerWidth, vh = window.innerHeight;
             let x = r.right + 16, y = Math.max(12, r.top);
@@ -65,6 +68,10 @@
                 else { x = Math.max(12, Math.min(r.left, vw - pw - 12)); y = r.bottom + 12; }
             }
             if (!stackedControls() && y + ph > vh - 12) y = Math.max(12, vh - ph - 12);
+            if (source && vw >= 1280 && x < source.right && x + pw > source.left && y < source.bottom && y + ph > source.top) {
+                x = Math.max(12, Math.min(r.left, vw - pw - 12));
+                y = Math.max(12, Math.min(r.bottom + 16, vh - ph - 12));
+            }
             placement = { x, y };
         }
         void tick().then(() => {
@@ -105,7 +112,17 @@
 
 {#if active}
     {#if found}
-        <div class="tour-spotlight" aria-hidden="true" style={`left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px`}></div>
+        {#if sourceBox}
+            <svg class="tour-dimmer" width="100%" height="100%" aria-hidden="true">
+                <defs><mask id="tour-nudge-mask"><rect width="100%" height="100%" fill="white" />
+                    <rect x={box.x} y={box.y} width={box.width} height={box.height} rx="10" fill="black" />
+                    <rect x={sourceBox.x} y={sourceBox.y} width={sourceBox.width} height={sourceBox.height} rx="10" fill="black" />
+                </mask></defs>
+                <rect width="100%" height="100%" fill="black" fill-opacity="0.32" mask="url(#tour-nudge-mask)" />
+            </svg>
+            <div class="tour-spotlight secondary" aria-hidden="true" style={`left:${sourceBox.x}px;top:${sourceBox.y}px;width:${sourceBox.width}px;height:${sourceBox.height}px`}></div>
+        {/if}
+        <div class="tour-spotlight" class:secondary={Boolean(sourceBox)} aria-hidden="true" style={`left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px`}></div>
     {/if}
     <section bind:this={panel} class="tour-callout" aria-label="Tutorial Mode" tabindex="-1"
         style={`left:${placement.x}px;top:${placement.y}px`}>
@@ -116,7 +133,7 @@
             <p>{#if 'mobileText' in current}
                 <span class="tour-desktop-copy">{current.text}</span>
                 <span class="tour-mobile-copy">{current.mobileText}</span>
-            {:else}{current.text}{/if}{#if step === 4}
+            {:else}{current.text}{/if}{#if step === 4 || step === 7}
                 <span class="tour-desktop-zoom"> You can also nudge with WASD or keyboard arrow keys.</span>
             {/if}{#if step === 5}
                 <span class="tour-desktop-zoom"> Use the mouse scroll wheel over either preview to zoom.</span>
@@ -145,6 +162,8 @@
     @media(max-width:1279px) { .tour-desktop-copy { display:none; } .tour-mobile-copy { display:inline; } }
     @media(pointer:coarse) { .tour-desktop-zoom { display:none; } .tour-mobile-zoom { display:inline; } }
     .tour-spotlight { position:fixed; z-index:60; pointer-events:none; border:2px solid #22d3ee; border-radius:10px; box-shadow:0 0 0 9999px rgb(0 0 0 / 32%), 0 0 14px rgb(34 211 238 / 35%); }
+    .tour-dimmer { position:fixed; inset:0; z-index:59; pointer-events:none; }
+    .tour-spotlight.secondary { box-shadow:0 0 14px rgb(34 211 238 / 35%); }
     .tour-callout { position:fixed; z-index:70; width:min(320px, calc(100vw - 24px)); box-sizing:border-box; padding:16px; border:1px solid #22d3ee; border-radius:12px; background:var(--color-zinc-900); color:var(--color-zinc-100); box-shadow:0 8px 32px #0008; font-size:13px; line-height:1.5; max-height:calc(100dvh - 24px); overflow:auto; }
     .tour-heading,.tour-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .tour-heading { font-size:11px; color:var(--color-zinc-400); }

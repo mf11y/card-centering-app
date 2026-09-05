@@ -1705,8 +1705,8 @@ const inputController = createInputController({
                 </section>
                 <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">
                     <div class="border-b border-zinc-800 px-5 py-4">
-                        <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Adjustments</h2>
-                        <p class="text-xs text-zinc-500">Use the directional pads to fine-tune corners and inner guides.</p>
+                        <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase"><span class="hidden xl:inline">Adjustments</span><span class="xl:hidden">INSTRUCTIONS | ABOUT</span></h2>
+                        <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners and inner guides.</p>
                     </div>
                     <div class="p-5">
 <div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
@@ -2019,7 +2019,7 @@ const inputController = createInputController({
 										}}
 									/>
 								</svg>
-								<div data-tour="arrows" class="grid grid-cols-3 gap-2">
+								<div data-tour="arrows" data-guide-arrows class="grid grid-cols-3 gap-2">
 									<div></div>
 									<button
 										class={getPadButtonClass('up')}
@@ -3350,7 +3350,7 @@ const inputController = createInputController({
 
 							</svg>
 
-							<div data-tour="arrows" class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
+							<div data-tour="arrows" data-guide-arrows class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
 									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
@@ -3452,7 +3452,8 @@ const inputController = createInputController({
     ready: Boolean(warpedImageUrl) && !isSegmenting && !actionRowBusy,
     busy: isSegmenting || actionRowBusy,
     failed: Boolean(imageUrl) && imageReadyForControls && !isSegmenting && !actionRowBusy && !warpedImageUrl,
-    cornerSelected: selectedTarget?.type === 'corner'
+    cornerSelected: selectedTarget?.type === 'corner',
+    guideSelected: selectedTarget?.type === 'guide'
 }} />
 </div>
 

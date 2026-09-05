@@ -12,9 +12,13 @@ test('detection gates adjustments and explains failures', () => {
     assert.match(tutorialGate(1, { ...empty, hasImage:true, failed:true })!, /Reset/);
     assert.equal(tutorialGate(1, { ...empty, hasImage:true, ready:true }), null);
 });
-test('corner selection is required only at its teaching step', () => {
+test('corner and guide selection are required at their respective teaching steps', () => {
     const ready = { ...empty, hasImage:true, ready:true };
     assert.match(tutorialGate(2, ready)!, /corner nodes/);
     assert.equal(tutorialGate(2, { ...ready, cornerSelected:true }), null);
-    for (let step=3; step<tutorialSteps.length; step++) assert.equal(tutorialGate(step, ready), null);
+    assert.match(tutorialGate(7, ready)!, /Select an inner guide/);
+    assert.equal(tutorialGate(7, { ...ready, guideSelected:true }), null);
+    for (let step=3; step<tutorialSteps.length; step++) {
+        if (step !== 7) assert.equal(tutorialGate(step, ready), null);
+    }
 });
