@@ -1315,7 +1315,36 @@ const inputController = createInputController({
 				backgroundColor: null,
 				scale: 2,
 				useCORS: true,
-				logging: false
+				logging: false,
+				onclone: (clonedDocument) => {
+					// Canvas export does not reliably support masks or gradient-clipped text.
+					// Change only the detached export document, preserving the live animation.
+					const style = clonedDocument.createElement('style');
+					style.textContent = `
+						.centering-rgb-glow::before, .centering-rgb-glow::after {
+							content: none !important;
+							display: none !important;
+						}
+						.centering-rgb-glow {
+							animation: none !important;
+							background: #101014 !important;
+							border-color: #d946ef !important;
+							box-shadow: 0 0 12px rgba(168, 85, 247, 0.45) !important;
+						}
+						.centering-rgb-value {
+							animation: none !important;
+							background: none !important;
+							color: #e879f9 !important;
+							-webkit-text-fill-color: #e879f9 !important;
+							filter: none !important;
+							text-shadow: 0 0 3px rgba(217, 70, 239, 0.35) !important;
+						}
+					`;
+					clonedDocument.head.appendChild(style);
+					// html2canvas materializes pseudo-elements before invoking onclone.
+					clonedDocument.querySelectorAll('.centering-rgb-glow > html2canvaspseudoelement')
+						.forEach((overlay) => overlay.remove());
+				}
 			});
 
 			canvas.toBlob((blob) => {
