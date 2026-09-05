@@ -4,9 +4,12 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { captureUpload, CaptureError, readUpload } from '$lib/server/upload-storage';
 
+import { uploadFailureDetails } from '$lib/server/upload-diagnostics';
+
 export const prerender = false;
 
 export const POST: RequestHandler = async ({ request, url }) => {
+    const productionBlobPath = !dev || env.VERCEL === '1';
     const headers = { 'cache-control': 'no-store' };
     // Same-origin browser uploads only. This is not authentication or abuse prevention.
     const origin = request.headers.get('origin');
@@ -14,13 +17,13 @@ export const POST: RequestHandler = async ({ request, url }) => {
     try {
         const file = await readUpload(request);
         const result = await captureUpload(file, {
-            production: !dev || env.VERCEL === '1',
+            production: productionBlobPath,
             localDirectory: env.UPLOAD_LOG_DIR
         });
         return json(result, { status: 201, headers });
     } catch (error) {
         const status = error instanceof CaptureError ? error.status : 503;
-        if (status >= 500) console.warn('Upload capture unavailable');
+        if (status >= 500) console.error('Upload capture failed', uploadFailureDetails(error, productionBlobPath));
         return json({ ok: false, error: status >= 500 ? 'Capture unavailable' : (error as Error).message }, { status, headers });
     }
 };
