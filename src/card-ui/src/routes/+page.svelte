@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Tutorial from "../lib/tutorial/Tutorial.svelte";
+	let tutorialActive = $state(false);
 	import { logUploadedImage } from "../lib/upload-logging";
 	import { html2canvas } from 'html2canvas-pro';
 	import { onMount, onDestroy, tick } from 'svelte';
@@ -1590,7 +1592,7 @@ const inputController = createInputController({
 </script>
 
 <!-- Page shell and top-level layout -->
-<div class="w-full overflow-x-hidden" data-theme={theme}>
+<div class="w-full overflow-x-hidden" data-theme={theme} data-tutorial-active={tutorialActive}>
 	<div
 		class="flex min-h-screen flex-col bg-zinc-950
 		text-zinc-100 select-none"
@@ -1616,9 +1618,18 @@ const inputController = createInputController({
 
 		<main class="mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-6">
 			<!-- Main tool layout: adjustment panel, source preview, warp preview -->
-			<div class="grid w-full items-start gap-6 xl:grid-cols-[420px_auto_auto] xl:justify-center">
+			<div class="grid w-full items-start gap-6 xl:grid-cols-[minmax(280px,420px)_minmax(0,525px)_minmax(0,525px)] xl:justify-center">
+				<div class="tutorial-adjustments">
+					<button type="button" class="tutorial-tab" class:active={tutorialActive}
+						aria-pressed={tutorialActive} aria-label={tutorialActive ? 'Exit Tutorial Mode' : 'Start Tutorial Mode'}
+						onclick={() => tutorialActive = !tutorialActive}>
+                        <svg class="tutorial-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+                        </svg>
+                        <span>TUTORIAL MODE</span>
+                    </button>
 				<section
-					class="flex w-full xl:w-[420px] flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
 					<div class="border-b border-zinc-800 px-5 py-4">
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Adjustments</h2>
@@ -1657,6 +1668,7 @@ const inputController = createInputController({
 											</div>
 
 											<button
+												data-tour="upload"
 												class={`min-w-0 rounded-lg border px-3 py-2.5 text-sm ${
 													actionRowBusy
 														? 'border-blue-400 bg-zinc-800 text-blue-300 animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.7)]'
@@ -1685,7 +1697,7 @@ const inputController = createInputController({
 								</div>
 
 								<!-- row 2: step size -->
-								<div class="space-y-2">
+								<div class="hidden xl:block space-y-2">
 									<label
 										for="step-size"
 										class="text-xs font-medium tracking-wide text-zinc-400 uppercase"
@@ -1694,7 +1706,7 @@ const inputController = createInputController({
 									</label>
 
 									<select
-										id="step-size"
+										id="step-size" data-tour="step-size"
 										bind:value={stepSize}
 										onchange={(e) => {
 											stepSize = Number((e.currentTarget as HTMLSelectElement).value);
@@ -1997,7 +2009,7 @@ const inputController = createInputController({
 										}}
 									/>
 								</svg>
-								<div class="grid grid-cols-3 gap-2">
+								<div data-tour="arrows" class="grid grid-cols-3 gap-2">
 									<div></div>
 									<button
 										class={getPadButtonClass('up')}
@@ -2102,8 +2114,8 @@ const inputController = createInputController({
 								    <li>
 								        <strong class="text-zinc-200">Fine-tune.</strong>
 								        Select a corner or side on the mini map: corners control Source, sides control
-								        the inner guides in Warp Preview. Drag the handles or nudge with WASD, arrow keys,
-								        or the arrow pad. Lower Step Size for finer moves. Use the mouse scroll wheel over either Source or Warp Preview to zoom in and out.
+								        the inner guides in Warp Preview. The SOURCE mini map controls corners only. Drag the handles or nudge <span class="hidden xl:inline">with WASD or keyboard arrow keys, or </span>
+								        with the arrow pad. Lower Step Size for finer moves. <span class="hidden xl:inline">Use the mouse scroll wheel over either Source or Warp Preview to zoom in and out.</span><span class="xl:hidden">On either Source or Warp Preview, spread two fingers apart to zoom in and pinch them together to zoom out.</span>
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Read the split.</strong>
@@ -2156,9 +2168,10 @@ const inputController = createInputController({
 						</div>
 					</div>
 				</section>
+				</div>
 
 				<section
-					class="w-full xl:w-[525px] justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
@@ -2239,6 +2252,7 @@ const inputController = createInputController({
 										<!-- fixed review viewport -->
 										<div
 											class="absolute inset-0 overflow-hidden rounded-xl"
+											data-tour="source"
 											use:ctrlWheelZoom={'source'}
 										>
 											<!-- static background fill so no black bars ever appear -->
@@ -2434,10 +2448,11 @@ const inputController = createInputController({
 						</div>
 					</div>
 
-					<div class="block xl:hidden p-4">
+					<div class="block xl:hidden p-4" data-mobile-controls="source">
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
+                                <p class="mt-2 text-xs normal-case tracking-normal text-zinc-400">Select a corner, then use the arrows to adjust it in SOURCE. This mini map controls corners only. Adjust inner borders in WARP.</p>
 							</div>
 						</div>
 
@@ -2445,6 +2460,8 @@ const inputController = createInputController({
 							class="mx-auto grid w-full max-w-[420px] grid-cols-2 items-center gap- p-1"
 							role="toolbar"
 							aria-label="Card controls mini map"
+                            data-controls="source-corners"
+                            onfocusin={() => { if (selectedTarget?.type === 'guide') selectTarget(null); }}
 							tabindex="-1"
 							onkeydown={handleMiniMapTrapKeydown}
 						>
@@ -2452,176 +2469,25 @@ const inputController = createInputController({
 								viewBox="0 0 220 210"
 								class="h-[210px] w-full overflow-visible"
 							>
+                                <rect
+                                    x="60" y="30" width="100" height="140"
+                                    fill="transparent" stroke="none" pointer-events="all"
+                                    role="button" tabindex="0" aria-label="Clear mini-map selection"
+                                    onpointerdown={(e) => { e.preventDefault(); }}
+                                    class="cursor-pointer"
+                                    onclick={(e) => { e.stopPropagation(); selectTarget(null); inputController.stopPadHold(); }}
+                                    onkeydown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+                                            e.preventDefault(); e.stopPropagation();
+                                            selectTarget(null); inputController.stopPadHold();
+                                        }
+                                    }}
+                                />
+
 								<!-- card body -->
-								<rect
-									x="60"
-									y="30"
-									width="100"
-									height="140"
-									rx="18"
-									class="fill-zinc-900 stroke-zinc-700"
-									stroke-width="2"
-								/>
 
-								<rect
-									x="60"
-									y="30"
-									width="100"
-									height="140"
-									rx="18"
-									fill="transparent"
-									pointer-events="all"
-									class="cursor-pointer"
-									role="button"
-									tabindex="0"
-									aria-label="Deselect corners and edges"
-									onclick={(e) => {
-										e.stopPropagation();
-										selectTarget(null);
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-											e.preventDefault();
-											selectTarget(null);
-										}
-									}}
-								/>
 
-								<!-- top -->
-								<line
-									x1="60"
-									y1="30"
-									x2="160"
-									y2="30"
-									stroke={activeGuide === 'top' ? '#60a5fa' : '#52525b'}
-									stroke-width="3"
-									stroke-linecap="round"
-								/>
-								<line
-									x1="60"
-									y1="30"
-									x2="160"
-									y2="30"
-									stroke="transparent"
-									stroke-width="20"
-									stroke-linecap="round"
-									class="cursor-pointer focus:outline-none"
-									role="button"
-									tabindex="0"
-									aria-label="Select top edge"
-									onclick={(e) => {
-										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'top' });
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											selectTarget({ type: 'guide', key: 'top' });
-										}
-									}}
-								/>
 
-								<!-- right -->
-								<line
-									x1="160"
-									y1="30"
-									x2="160"
-									y2="170"
-									stroke={activeGuide === 'right' ? '#60a5fa' : '#52525b'}
-									stroke-width="3"
-									stroke-linecap="round"
-								/>
-								<line
-									x1="160"
-									y1="30"
-									x2="160"
-									y2="170"
-									stroke="transparent"
-									stroke-width="20"
-									stroke-linecap="round"
-									class="cursor-pointer focus:outline-none"
-									role="button"
-									tabindex="0"
-									aria-label="Select right edge"
-									onclick={(e) => {
-										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'right' });
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											selectTarget({ type: 'guide', key: 'right' });
-										}
-									}}
-								/>
-
-								<!-- bottom -->
-								<line
-									x1="60"
-									y1="170"
-									x2="160"
-									y2="170"
-									stroke={activeGuide === 'bottom' ? '#60a5fa' : '#52525b'}
-									stroke-width="3"
-									stroke-linecap="round"
-								/>
-								<line
-									x1="60"
-									y1="170"
-									x2="160"
-									y2="170"
-									stroke="transparent"
-									stroke-width="20"
-									stroke-linecap="round"
-									class="cursor-pointer focus:outline-none"
-									role="button"
-									tabindex="0"
-									aria-label="Select bottom edge"
-									onclick={(e) => {
-										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'bottom' });
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											selectTarget({ type: 'guide', key: 'bottom' });
-										}
-									}}
-								/>
-
-								<!-- left -->
-								<line
-									x1="60"
-									y1="30"
-									x2="60"
-									y2="170"
-									stroke={activeGuide === 'left' ? '#60a5fa' : '#52525b'}
-									stroke-width="3"
-									stroke-linecap="round"
-								/>
-								<line
-									x1="60"
-									y1="30"
-									x2="60"
-									y2="170"
-									stroke="transparent"
-									stroke-width="20"
-									stroke-linecap="round"
-									class="cursor-pointer focus:outline-none"
-									role="button"
-									tabindex="0"
-									aria-label="Select left edge"
-									onclick={(e) => {
-										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'left' });
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											selectTarget({ type: 'guide', key: 'left' });
-										}
-									}}
-								/>
 
 								<!-- corner hotspots -->
 								<circle
@@ -2704,15 +2570,16 @@ const inputController = createInputController({
 									}}
 								/>
 							</svg>
-							<div class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
+							<div data-tour="arrows" class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
-									class={getPadButtonClass('up')}
+									disabled={selectedTarget?.type !== 'corner'}
+                                    class={getPadButtonClass('up')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										inputController.startPadHold('up');
+										if (selectedTarget?.type === 'corner') inputController.startPadHold('up');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2723,12 +2590,13 @@ const inputController = createInputController({
 								<div></div>
 
 								<button
-									class={getPadButtonClass('left')}
+									disabled={selectedTarget?.type !== 'corner'}
+                                    class={getPadButtonClass('left')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										inputController.startPadHold('left');
+										if (selectedTarget?.type === 'corner') inputController.startPadHold('left');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2749,12 +2617,13 @@ const inputController = createInputController({
 								</button>
 
 								<button
-									class={getPadButtonClass('right')}
+									disabled={selectedTarget?.type !== 'corner'}
+                                    class={getPadButtonClass('right')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										inputController.startPadHold('right');
+										if (selectedTarget?.type === 'corner') inputController.startPadHold('right');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2765,12 +2634,13 @@ const inputController = createInputController({
 
 								<div></div>
 								<button
-									class={getPadButtonClass('down')}
+									disabled={selectedTarget?.type !== 'corner'}
+                                    class={getPadButtonClass('down')}
 									type="button"
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
-										inputController.startPadHold('down');
+										if (selectedTarget?.type === 'corner') inputController.startPadHold('down');
 									}}
 									onpointerup={inputController.stopPadHold}
 									onpointercancel={inputController.stopPadHold}
@@ -2781,11 +2651,34 @@ const inputController = createInputController({
 								<div></div>
 							</div>
 						</div>
-					</div>
+					<div class="mt-4 space-y-2">
+									<label
+										for="step-size-source"
+										class="text-xs font-medium tracking-wide text-zinc-400 uppercase"
+									>
+										Step Size
+									</label>
+
+									<select
+										id="step-size-source" data-tour="step-size"
+										bind:value={stepSize}
+										onchange={(e) => {
+											stepSize = Number((e.currentTarget as HTMLSelectElement).value);
+											(e.currentTarget as HTMLSelectElement).blur();
+										}}
+										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm transition outline-none focus:border-blue-500"
+									>
+										<option value={0.01}>0.01%</option>
+										<option value={0.025}>0.025%</option>
+										<option value={0.05}>0.05%</option>
+										<option value={0.1}>.1%</option>
+									</select>
+								</div>
+</div>
 				</section>
 
 				<section
-					class="w-full xl:w-[525px] justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
@@ -2841,7 +2734,7 @@ const inputController = createInputController({
 						}`}
 					>
 						<!-- Centering Metrics -->
-						<div class="grid shrink-0 grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+						<div data-tour="results" class="grid shrink-0 grid-cols-1 gap-4 text-sm sm:grid-cols-2">
 							<!-- Vertical Centering -->
 							<div>
 								<div class="mb-2 text-xs tracking-wide text-zinc-500 uppercase">
@@ -2979,10 +2872,11 @@ const inputController = createInputController({
 								role="button"
 								tabindex="0"
 								aria-label="Clear active selection"
-								class="relative aspect-[5/7] w-full xl:w-[525px] touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950 focus:outline-none"
+								class="relative aspect-[5/7] w-full xl:w-full touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950 focus:outline-none"
 								bind:this={warpContainerEl}
 								data-focus-trap="warp"
-								use:ctrlWheelZoom={'warp'}
+								data-tour="warp"
+							use:ctrlWheelZoom={'warp'}
 								onpointerdown={(e) => {
 									if ((e.target as HTMLElement).closest('button')) return;
 									e.currentTarget.focus({ preventScroll: true });
@@ -3259,7 +3153,7 @@ const inputController = createInputController({
 						</div>
 					</div>
 
-					<div class="block xl:hidden p-4">
+					<div class="block xl:hidden p-4" data-mobile-controls="warp">
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
@@ -3277,40 +3171,25 @@ const inputController = createInputController({
 								viewBox="0 0 220 210"
 								class="h-[210px] w-full overflow-visible"
 							>
-								<!-- card body -->
-								<rect
-									x="60"
-									y="30"
-									width="100"
-									height="140"
-									rx="18"
-									class="fill-zinc-900 stroke-zinc-700"
-									stroke-width="2"
-								/>
+                                <rect
+                                    x="60" y="30" width="100" height="140"
+                                    fill="transparent" stroke="none" pointer-events="all"
+                                    role="button" tabindex="0" aria-label="Clear mini-map selection"
+                                    onpointerdown={(e) => { e.preventDefault(); }}
+                                    class="cursor-pointer"
+                                    onclick={(e) => { e.stopPropagation(); selectTarget(null); inputController.stopPadHold(); }}
+                                    onkeydown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+                                            e.preventDefault(); e.stopPropagation();
+                                            selectTarget(null); inputController.stopPadHold();
+                                        }
+                                    }}
+                                />
 
-								<rect
-									x="60"
-									y="30"
-									width="100"
-									height="140"
-									rx="18"
-									fill="transparent"
-									pointer-events="all"
-									class="cursor-pointer"
-									role="button"
-									tabindex="0"
-									aria-label="Deselect corners and edges"
-									onclick={(e) => {
-										e.stopPropagation();
-										selectTarget(null);
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-											e.preventDefault();
-											selectTarget(null);
-										}
-									}}
-								/>
+								<!-- card body -->
+
+
+
 
 								<!-- top -->
 								<line
@@ -3449,37 +3328,13 @@ const inputController = createInputController({
 								/>
 
 								<!-- corner hotspots -->
-								<circle
-									cx="60"
-									cy="30"
-									r="12"
-									class={'fill-zinc-700 stroke-zinc-500'}
-									stroke-width="2"
-								/>
-								<circle
-									cx="160"
-									cy="30"
-									r="12"
-									class={'fill-zinc-700 stroke-zinc-500'}
-									stroke-width="2"
-								/>
-								<circle
-									cx="60"
-									cy="170"
-									r="12"
-									class={'fill-zinc-700 stroke-zinc-500'}
-									stroke-width="2"
-								/>
-								<circle
-									cx="160"
-									cy="170"
-									r="12"
-									class={'fill-zinc-700 stroke-zinc-500'}
-									stroke-width="2"
-								/>
+
+
+
+
 							</svg>
 
-							<div class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
+							<div data-tour="arrows" class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
 									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
@@ -3539,7 +3394,30 @@ const inputController = createInputController({
 								<div></div>
 							</div>
 						</div>
-					</div>
+					<div class="mt-4 space-y-2">
+									<label
+										for="step-size-warp"
+										class="text-xs font-medium tracking-wide text-zinc-400 uppercase"
+									>
+										Step Size
+									</label>
+
+									<select
+										id="step-size-warp"
+										bind:value={stepSize}
+										onchange={(e) => {
+											stepSize = Number((e.currentTarget as HTMLSelectElement).value);
+											(e.currentTarget as HTMLSelectElement).blur();
+										}}
+										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm transition outline-none focus:border-blue-500"
+									>
+										<option value={0.01}>0.01%</option>
+										<option value={0.025}>0.025%</option>
+										<option value={0.05}>0.05%</option>
+										<option value={0.1}>.1%</option>
+									</select>
+								</div>
+</div>
 				</section>
 			</div>
 		</main>
@@ -3553,9 +3431,37 @@ const inputController = createInputController({
 			</a>
 		</footer>
 	</div>
+<Tutorial bind:active={tutorialActive} context={{
+    hasImage: Boolean(imageUrl),
+    ready: Boolean(warpedImageUrl) && !isSegmenting && !actionRowBusy,
+    busy: isSegmenting || actionRowBusy,
+    failed: Boolean(imageUrl) && imageReadyForControls && !isSegmenting && !actionRowBusy && !warpedImageUrl,
+    cornerSelected: selectedTarget?.type === 'corner'
+}} />
 </div>
 
 <style>
+    .tutorial-adjustments { position:relative; min-width:0; }
+    .tutorial-tab {
+        position:absolute; right:calc(100% + 3px); top:92px;
+        display:flex; align-items:center; gap:10px; width:20px; padding:13px 2px;
+        writing-mode:vertical-rl; transform:rotate(180deg);
+        border:1px solid rgb(34 211 238 / 28%); border-radius:999px;
+        background:linear-gradient(90deg, rgb(34 211 238 / 8%), transparent), var(--color-zinc-900);
+        color:var(--color-zinc-300); font-size:9px; font-weight:600; letter-spacing:.15em;
+        box-shadow:inset 0 0 8px rgb(34 211 238 / 4%), 0 2px 8px rgb(0 0 0 / 18%);
+        cursor:pointer;
+    }
+    .tutorial-tab-icon { flex-shrink:0; color:#67e8f9; }
+    .tutorial-tab:hover,.tutorial-tab.active {
+        color:#a5f3fc; border-color:rgb(34 211 238 / 75%);
+        background:linear-gradient(90deg, rgb(34 211 238 / 16%), rgb(34 211 238 / 4%)), var(--color-zinc-900);
+        box-shadow:0 0 12px rgb(34 211 238 / 16%), inset 0 0 8px rgb(34 211 238 / 8%);
+    }
+    .tutorial-tab.active .tutorial-tab-icon { fill:rgb(34 211 238 / 25%); }
+    .tutorial-tab:focus-visible { outline:2px solid #22d3ee; outline-offset:3px; }
+	@media(max-width:767px) { :global([data-tutorial-active='true']) { padding-bottom:300px; } }
+
 	.theme-toggle {
 		width: 40px;
 		height: 40px;
