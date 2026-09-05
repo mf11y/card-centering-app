@@ -24,3 +24,10 @@ api/card-api/models/
 *.pth
 *.onnx
 !src/card-ui/static/models/*.onnx
+
+# Private captured user images and events
+upload_logs/
+
+# Private local environment files
+.env.*
+!.env.example

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { logUploadedImage } from "../lib/upload-logging";
 	import { html2canvas } from 'html2canvas-pro';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
@@ -922,6 +923,7 @@ const inputController = createInputController({
 		if (!file.type.startsWith('image/') || actionRowBusy || imageUrl) return;
 
 		actionRowBusy = true;
+		logUploadedImage(file);
 		await new Promise((resolve) => setTimeout(resolve, ACTION_ROW_TRANSITION_MS));
 		loadFile(file);
 	}
@@ -1598,6 +1600,7 @@ const inputController = createInputController({
 														: 'Reset'}
 											</button>
 									</div>
+									<p id="upload-retention-note" class="mt-2 text-xs text-zinc-400">Uploaded images may be retained to help improve card detection.</p>
 								</div>
 
 								<!-- row 2: step size -->
@@ -2078,6 +2081,7 @@ const inputController = createInputController({
 						>
 							<input
 								id="image-upload"
+								aria-describedby="upload-retention-note"
 								type="file"
 								accept="image/*"
 								class="hidden"
