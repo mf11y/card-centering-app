@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Tutorial from "../lib/tutorial/Tutorial.svelte";
 	let tutorialActive = $state(false);
+    let howToUseOpen = $state(false);
 	import { logUploadedImage } from "../lib/upload-logging";
 	import { html2canvas } from 'html2canvas-pro';
 	import { onMount, onDestroy, tick } from 'svelte';
@@ -1619,8 +1620,7 @@ const inputController = createInputController({
 		<main class="mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-6">
 			<!-- Main tool layout: adjustment panel, source preview, warp preview -->
 			<div class="grid w-full items-start gap-6 xl:grid-cols-[minmax(280px,420px)_minmax(0,525px)_minmax(0,525px)] xl:justify-center">
-				<div class="tutorial-adjustments">
-					<button type="button" class="tutorial-tab" class:active={tutorialActive}
+                <button type="button" class="tutorial-tab" class:active={tutorialActive}
 						aria-pressed={tutorialActive} aria-label={tutorialActive ? 'Exit Tutorial Mode' : 'Start Tutorial Mode'}
 						onclick={() => tutorialActive = !tutorialActive}>
                         <svg class="tutorial-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1628,18 +1628,19 @@ const inputController = createInputController({
                         </svg>
                         <span>TUTORIAL MODE</span>
                     </button>
+				<div class="tutorial-adjustments">
 				<section
 					class="flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
 					<div class="border-b border-zinc-800 px-5 py-4">
-						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Adjustments</h2>
+						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Upload</h2>
 						<p class="text-xs text-zinc-500">
-							Use the directional pads to nudge each corner precisely
+							Upload a card photo or try a sample to get started
 						</p>
 					</div>
 
 					<div class="p-5">
-						<div class="mb-5 rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4">
+						<div class="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4">
 							<div class="space-y-4">
 								<!-- row 1: Try Me + Upload before image, Reset after image -->
 								<div>
@@ -1696,8 +1697,25 @@ const inputController = createInputController({
 									<p id="upload-retention-note" class="mt-2 text-xs text-zinc-400">Uploaded images may be retained to help improve card detection.</p>
 								</div>
 
-								<!-- row 2: step size -->
-								<div class="hidden xl:block space-y-2">
+
+							</div>
+						</div>
+
+						</div>
+                </section>
+                <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">
+                    <div class="border-b border-zinc-800 px-5 py-4">
+                        <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Adjustments</h2>
+                        <p class="text-xs text-zinc-500">Use the directional pads to fine-tune corners and inner guides.</p>
+                    </div>
+                    <div class="p-5">
+<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+							<div class="mb-3 flex items-center justify-between">
+								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
+									Card Controls MINI MAP
+								</div>
+							</div>
+<div class="hidden xl:block space-y-2">
 									<label
 										for="step-size"
 										class="text-xs font-medium tracking-wide text-zinc-400 uppercase"
@@ -1720,15 +1738,7 @@ const inputController = createInputController({
 										<option value={0.1}>.1%</option>
 									</select>
 								</div>
-							</div>
-						</div>
 
-						<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
-							<div class="mb-3 flex items-center justify-between">
-								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
-									Card Controls MINI MAP
-								</div>
-							</div>
 
 							<div
 								class="mx-auto flex max-w-[260px] flex-col items-center gap-1 p-2"
@@ -1744,7 +1754,7 @@ const inputController = createInputController({
 									text-anchor="middle"
 									class="fill-zinc-400 text-[12px] tracking-[0.2em]"
 								>
-									CORNERS = SOURCE
+									CORNERS | SOURCE PANEL
 								</text>
 								<text
 									x="110"
@@ -1752,7 +1762,7 @@ const inputController = createInputController({
 									text-anchor="middle"
 									class="fill-zinc-500 text-[12px] tracking-[0.2em]"
 								>
-									SIDES = WARP
+									SIDES | WARP PANEL
 								</text>
 								<svg
 									viewBox="0 0 220 210"
@@ -2090,11 +2100,16 @@ const inputController = createInputController({
 
 						<div class="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
 							<div class="space-y-3 text-sm leading-relaxed text-zinc-400">
-								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
-									How to Use
-								</div>
-
-								<ol class="list-decimal space-y-3 pl-5">
+								<div class="hidden xl:block pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">How to Use</div>
+                                <button type="button" class="flex w-full items-center justify-between gap-3 text-xs font-medium tracking-wide text-zinc-400 uppercase xl:hidden"
+                                    aria-expanded={howToUseOpen} aria-controls="how-to-use-content" onclick={() => howToUseOpen = !howToUseOpen}>
+                                    How to Use
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style:transform={howToUseOpen ? 'rotate(180deg)' : 'none'}>
+                                        <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                    </svg>
+                                </button>
+                                <div id="how-to-use-content" class:instructions-open={howToUseOpen} class="how-to-use-content space-y-3">
+                                <ol class="list-decimal space-y-3 pl-5">
 								    <li>
 								        <strong class="text-zinc-200">Start with a photo.</strong>
 								        Upload or drop a clear image with all four corners visible, or choose Try Me
@@ -2144,7 +2159,8 @@ const inputController = createInputController({
 								    not verified accuracy. Centering is only one part of a card's grade.
 								</p>
 
-								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
+								</div>
+<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
 									About This Tool
 								</div>
 
@@ -2452,7 +2468,7 @@ const inputController = createInputController({
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
-                                <p class="mt-2 text-xs normal-case tracking-normal text-zinc-400">Select a corner, then use the arrows to adjust it in SOURCE. This mini map controls corners only. Adjust inner borders in WARP.</p>
+
 							</div>
 						</div>
 
@@ -3441,11 +3457,13 @@ const inputController = createInputController({
 </div>
 
 <style>
+    .how-to-use-content { display:none; }
+    .how-to-use-content.instructions-open { display:block; }
+    @media(min-width:1280px) { .how-to-use-content { display:block; } }
     .tutorial-adjustments { position:relative; min-width:0; }
     .tutorial-tab {
-        position:absolute; right:calc(100% + 3px); top:92px;
-        display:flex; align-items:center; gap:10px; width:20px; padding:13px 2px;
-        writing-mode:vertical-rl; transform:rotate(180deg);
+        grid-column:1 / -1; justify-self:start; max-width:100%;
+        display:flex; align-items:center; gap:8px; padding:9px 14px;
         border:1px solid rgb(34 211 238 / 28%); border-radius:999px;
         background:linear-gradient(90deg, rgb(34 211 238 / 8%), transparent), var(--color-zinc-900);
         color:var(--color-zinc-300); font-size:9px; font-weight:600; letter-spacing:.15em;
