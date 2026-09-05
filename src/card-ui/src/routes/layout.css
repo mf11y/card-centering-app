@@ -1,2 +1,41 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+
+/* Scoped palette: controls and surfaces retain their existing shade hierarchy. */
+[data-theme='coral'] {
+    --color-zinc-50: #fff8f5;
+    --color-zinc-100: #fff0eb;
+    --color-zinc-200: #f9dcd3;
+    --color-zinc-300: #edc0b5;
+    --color-zinc-400: #dba497;
+    --color-zinc-500: #b77e73;
+    --color-zinc-600: #975e54;
+    --color-zinc-700: #75473f;
+    --color-zinc-800: #55352f;
+    --color-zinc-900: #382522;
+    --color-zinc-950: #211816;
+    --centering-panel-bg: #2b1d1b;
+}
+
+/* Switch every surface in one paint; normal hover/movement transitions resume afterward. */
+[data-theme-switching],
+[data-theme-switching] *,
+[data-theme-switching] *::before,
+[data-theme-switching] *::after {
+    transition: none !important;
+}
+
+[data-theme='amethyst'] {
+    --color-zinc-50: #fcf9ff;
+    --color-zinc-100: #f4edff;
+    --color-zinc-200: #e5d8f5;
+    --color-zinc-300: #d1bce9;
+    --color-zinc-400: #b894e0;
+    --color-zinc-500: #a084ba;
+    --color-zinc-600: #806594;
+    --color-zinc-700: #614b76;
+    --color-zinc-800: #493858;
+    --color-zinc-900: #322743;
+    --color-zinc-950: #1d1829;
+    --centering-panel-bg: #261e33;
+}

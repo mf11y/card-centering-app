@@ -105,6 +105,25 @@ const inputController = createInputController({
 	});
 	let initialGuidesPending = true;
 	let guideGuessGeneration = 0;
+	const themes = ['charcoal', 'coral', 'amethyst'] as const;
+	const themeNames = { charcoal: 'Charcoal', coral: 'Coral', amethyst: 'Amethyst' };
+	let theme = $state<(typeof themes)[number]>('charcoal');
+	const nextTheme = $derived(themes[(themes.indexOf(theme) + 1) % themes.length]);
+	let themeSwitchVersion = 0;
+	async function toggleTheme(event: MouseEvent) {
+		const root = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-theme]');
+		const version = ++themeSwitchVersion;
+		root?.setAttribute('data-theme-switching', '');
+		// Apply the transition override before changing inherited palette variables.
+		if (root) void getComputedStyle(root).transitionProperty;
+		theme = nextTheme;
+		try { localStorage.setItem('card-centering-theme', theme); } catch { /* Storage is optional. */ }
+		await tick();
+		if (root) void root.offsetWidth;
+		requestAnimationFrame(() => requestAnimationFrame(() => {
+			if (version === themeSwitchVersion) root?.removeAttribute('data-theme-switching');
+		}));
+	}
 	let stepSize = $state(0.1);
 
 // ---- Layout measurements and DOM refs ----
@@ -1520,6 +1539,10 @@ const inputController = createInputController({
 	 */
 
 	onMount(() => {
+		try {
+			const savedTheme = localStorage.getItem('card-centering-theme');
+			if (savedTheme === 'coral' || savedTheme === 'amethyst') theme = savedTheme;
+		} catch { /* Use Charcoal when storage is unavailable. */ }
 		void preloadInferenceModel().catch((error) => {
 			console.warn('Could not preload the browser inference model; upload will retry.', error);
 		});
@@ -1567,14 +1590,23 @@ const inputController = createInputController({
 </script>
 
 <!-- Page shell and top-level layout -->
-<div class="w-full overflow-x-hidden">
+<div class="w-full overflow-x-hidden" data-theme={theme}>
 	<div
 		class="flex min-h-screen flex-col bg-zinc-950
 		text-zinc-100 select-none"
 	>
 		<!-- Application header -->
 		<header class="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
-			<div class="max-w-8xl mx-auto flex items-center justify-end px-6 py-4">
+			<div class="max-w-8xl mx-auto flex items-center justify-between px-6 py-4">
+				<button
+					type="button"
+					class="theme-toggle shrink-0 rounded-lg border border-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan-400"
+					onclick={toggleTheme}
+					aria-label={`Theme: ${themeNames[theme]}. Switch to ${themeNames[nextTheme]}`}
+					title={`Switch to ${themeNames[nextTheme]}`}
+				>
+					<span class="theme-swatch" aria-hidden="true"></span>
+				</button>
 				<div class="text-right">
 					<h1 class="text-2xl font-semibold tracking-tight">Card Centering</h1>
 					<p class="text-sm text-zinc-400">Upload, detect, refine, and warp</p>
@@ -2046,44 +2078,79 @@ const inputController = createInputController({
 
 						<div class="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
 							<div class="space-y-3 text-sm leading-relaxed text-zinc-400">
-								<div class="text-xs font-medium tracking-wide text-zinc-500 uppercase">
-									About This Tool
-								</div>
-
-								<p>
-									This tool helps you analyze Pokemon TCG centering by auto-detecting edges and
-									measuring border spacing.
-								</p>
-
 								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
 									How to Use
 								</div>
 
-								<ul class="list-disc space-y-1 pl-5">
-									<li>Upload a card image to begin detection.</li>
-									<li>
-										Use the mini card as a control map. Select a corner or side on the mini card to
-										adjust that same part of the card in the preview panels.
-									</li>
-									<li>
-										Line up the corners of the card. WASD, arrow pads, directional keys, and mouse
-										can be used to adjust. Zoom in for a closer view with ctrl + mouse wheel.
-									</li>
-									<li>
-										Use the warp preview to verify alignment. WASD, arrow pads, directional keys,
-										and mouse can be used to adjust. Zoom in for a closer view with ctrl + mouse
-										wheel.
-									</li>
-									<li>
-										Check centering percentages. % Turns red when the border ratio exceeds PSA 10
-										standards.
-									</li>
-									<li>Day/Night mode in the warp preview can be used to help find border edge.</li>
-									<li>Snapshot of warp preview panel can be taken with camera icon.</li>
-								</ul>
+								<ol class="list-decimal space-y-3 pl-5">
+								    <li>
+								        <strong class="text-zinc-200">Start with a photo.</strong>
+								        Upload or drop a clear image with all four corners visible, or choose Try Me
+								        to explore a sample. Shoot straight-on in even light when possible.
+								    </li>
+								    <li>
+								        <strong class="text-zinc-200">Check the outer corners.</strong>
+								        Detection places the corners in Source and straightens the card in Warp Preview.
+								        Verify the outline follows the card itself, not a sleeve or slab.
+								    </li>
+								    <li>
+								        <strong class="text-zinc-200">Check the inner borders.</strong>
+								        The tool looks for nearby printed edges to place the guides. These are starting
+								        estimates; unclear edges keep the default positions. Align each guide with the
+								        boundary between the card border and its printed design.
+								    </li>
+								    <li>
+								        <strong class="text-zinc-200">Fine-tune.</strong>
+								        Select a corner or side on the mini map: corners control Source, sides control
+								        the inner guides in Warp Preview. Drag the handles or nudge with WASD, arrow keys,
+								        or the arrow pad. Lower Step Size for finer moves. Ctrl + mouse wheel zooms each preview.
+								    </li>
+								    <li>
+								        <strong class="text-zinc-200">Read the split.</strong>
+								        Values appear once the card preview is ready. Top/Bottom measures vertical
+								        centering; Left/Right measures horizontal centering. Closer to 50/50 means more
+								        even borders. Red flags a less even split; the pink-purple glow marks near-50/50
+								        after you adjust that pair of guides.
+								    </li>
+								    <li>
+								        <strong class="text-zinc-200">Save or start again.</strong>
+								        The camera button downloads the warp panel and measurements. Exported highlights
+								        use simple purple styling for readability. Reset clears the card for your next upload.
+								    </li>
+								</ol>
 
+								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
+								    Preview &amp; Themes
+								</div>
+								<ul class="list-disc space-y-2 pl-5">
+								    <li>Use FX to cycle through Original, High contrast, and Grayscale contrast to inspect borders.</li>
+								    <li>The sun/moon button switches the warp panel between dark and light backgrounds.</li>
+								    <li>The square in the header cycles Charcoal, Coral, and Amethyst. Your choice is saved.</li>
+								</ul>
 								<p class="pt-2">
-									Use this before grading to quickly check centering accuracy and border balance.
+								    Always review the guides before trusting the numbers. The glow reflects guide positions,
+								    not verified accuracy. Centering is only one part of a card's grade.
+								</p>
+
+								<div class="pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">
+									About This Tool
+								</div>
+
+								<p>
+									This Pokemon card centering tool helps you check border alignment from a photo.
+									Automatic card detection finds the outer edges and corners, then creates a
+									straightened preview for checking horizontal and vertical centering.
+								</p>
+								<p>
+									Use the card centering calculator to compare left and right borders, measure
+									top and bottom spacing, and inspect inner-edge alignment. Automatic border
+									estimates, adjustable guides, zoom, and fine controls help you review off-center
+									Pokemon cards before deciding whether to submit them for grading.
+								</p>
+								<p>
+									Check card edges against the original image and save a screenshot of your
+									centering measurements. This tool measures border balance; it does not assess
+									edge wear, whitening, surface damage, or guarantee a grading result.
 								</p>
 							</div>
 						</div>
@@ -3489,11 +3556,28 @@ const inputController = createInputController({
 </div>
 
 <style>
+	.theme-toggle {
+		width: 40px;
+		height: 40px;
+		padding: 7px;
+		background: var(--color-zinc-900);
+		cursor: pointer;
+	}
+	.theme-swatch {
+		display: block;
+		width: 100%;
+		height: 100%;
+		border-radius: 3px;
+		background: linear-gradient(135deg, #45414a 0% 33.333%, #f08072 33.333% 66.667%, #b894e0 66.667% 100%);
+		box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%);
+	}
+	.theme-toggle:hover { border-color: var(--color-zinc-400); }
+
 	:global(.centering-rgb-glow) {
 		position: relative;
 		isolation: isolate;
 		border-color: transparent;
-		background: #101014;
+		background: var(--centering-panel-bg, #101014);
 		box-shadow: -8px -3px 18px -5px rgb(255 79 163 / 85%),
 			0 8px 20px -6px rgb(217 70 239 / 75%),
 			8px -3px 20px -5px rgb(124 58 237 / 90%);
