@@ -532,7 +532,7 @@ async function decodeMask(maskUrl: string, maxDimension = 500): Promise<BinaryMa
 	let area = 0;
 	for (let i = 0; i < data.length; i++) {
 		const offset = i * 4;
-		data[i] = pixels[offset] + pixels[offset + 1] + pixels[offset + 2] > 96 ? 1 : 0;
+		data[i] = pixels[offset] + pixels[offset + 1] + pixels[offset + 2] > 382.5 ? 1 : 0;
 		area += data[i];
 	}
 	if (area < 100) throw new Error('Segmentation mask is too small');

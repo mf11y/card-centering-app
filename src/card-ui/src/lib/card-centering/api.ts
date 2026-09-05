@@ -8,6 +8,9 @@
 import type * as Ort from 'onnxruntime-web';
 
 import { fitQuadFromMask } from './mask-geometry';
+import { refineCardImage, type EdgeRefinement } from './edge-refinement';
+import { nativeMask } from './native-mask';
+import type { Quad } from './geometry';
 
 const MODEL_URL = '/models/card-segmentation.onnx';
 const MODEL_SIZE = 640;
@@ -212,62 +215,34 @@ function getBestDetection(detections: Ort.Tensor) {
 	};
 }
 
-/**
- * Reconstructs the selected instance mask from YOLO prototype channels and crops it to its box.
- *
- * @param prototypes - Mask prototype tensor shaped `[1, 32, 160, 160]`.
- * @param coefficients - Per-detection weights for the prototype channels.
- * @param box - Detection bounds in the 640×640 model coordinate space.
- * @returns A black/white mask data URL in model-input coordinates.
- */
+/** Reconstruct native-resolution masks before fitting, matching retina_masks=True. */
 function buildMaskDataUrl(
-	prototypes: Ort.Tensor,
-	coefficients: Float32Array,
-	box: { left: number; top: number; right: number; bottom: number }
+    prototypes: Ort.Tensor,
+    coefficients: Float32Array,
+    box: { left: number; top: number; right: number; bottom: number },
+    prepared: PreprocessedImage
 ) {
-	const prototypeData = prototypes.data as Float32Array;
-	const prototypePlane = PROTO_SIZE * PROTO_SIZE;
-	const smallCanvas = document.createElement('canvas');
-	smallCanvas.width = PROTO_SIZE;
-	smallCanvas.height = PROTO_SIZE;
-	const smallContext = smallCanvas.getContext('2d');
-	if (!smallContext) throw new Error('Could not create mask canvas');
-
-	const pixels = smallContext.createImageData(PROTO_SIZE, PROTO_SIZE);
-	const scaleToProto = PROTO_SIZE / MODEL_SIZE;
-	const left = Math.max(0, box.left * scaleToProto);
-	const top = Math.max(0, box.top * scaleToProto);
-	const right = Math.min(PROTO_SIZE, box.right * scaleToProto);
-	const bottom = Math.min(PROTO_SIZE, box.bottom * scaleToProto);
-
-	for (let y = 0; y < PROTO_SIZE; y++) {
-		for (let x = 0; x < PROTO_SIZE; x++) {
-			const pixel = y * PROTO_SIZE + x;
-			let logit = 0;
-			for (let channel = 0; channel < MASK_CHANNELS; channel++) {
-				logit += coefficients[channel] * prototypeData[channel * prototypePlane + pixel];
-			}
-
-			const insideBox = x >= left && x <= right && y >= top && y <= bottom;
-			const foreground = insideBox && logit > 0;
-			const value = foreground ? 255 : 0;
-			const offset = pixel * 4;
-			pixels.data[offset] = value;
-			pixels.data[offset + 1] = value;
-			pixels.data[offset + 2] = value;
-			pixels.data[offset + 3] = 255;
-		}
-	}
-
-	smallContext.putImageData(pixels, 0, 0);
-	const maskCanvas = document.createElement('canvas');
-	maskCanvas.width = MODEL_SIZE;
-	maskCanvas.height = MODEL_SIZE;
-	const maskContext = maskCanvas.getContext('2d');
-	if (!maskContext) throw new Error('Could not create output mask canvas');
-	maskContext.imageSmoothingEnabled = false;
-	maskContext.drawImage(smallCanvas, 0, 0, MODEL_SIZE, MODEL_SIZE);
-	return maskCanvas.toDataURL('image/png');
+    const pw=Number(prototypes.dims[3]),ph=Number(prototypes.dims[2]);
+    const plane=pw*ph, logits=new Float32Array(plane);
+    const values=prototypes.data as Float32Array;
+    for(let i=0;i<plane;i++) {
+        let value=0;
+        for(let c=0;c<MASK_CHANNELS;c++)value+=coefficients[c]*values[c*plane+i];
+        logits[i]=value;
+    }
+    const {originalWidth:width,originalHeight:height,padX,padY,scale}=prepared;
+    const sourceBox={left:(box.left-padX)/scale,top:(box.top-padY)/scale,
+        right:(box.right-padX)/scale,bottom:(box.bottom-padY)/scale};
+    const mask=nativeMask(logits,pw,ph,width,height,sourceBox);
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Cannot create native mask canvas');
+    const pixels=ctx.createImageData(width,height);
+    for(let i=0;i<mask.length;i++) {
+        const value=mask[i]*255;
+        pixels.data[i*4]=value;pixels.data[i*4+1]=value;pixels.data[i*4+2]=value;pixels.data[i*4+3]=255;
+    }
+    ctx.putImageData(pixels,0,0);
+    return canvas.toDataURL('image/png');
 }
 
 /**
@@ -284,14 +259,22 @@ export async function inferCorners(file: File) {
 	const detection = getBestDetection(detections);
 	if (!detection) throw new Error('No card detected');
 
-	const maskUrl = buildMaskDataUrl(prototypes, detection.coefficients, detection.box);
+	const maskUrl = buildMaskDataUrl(prototypes, detection.coefficients, detection.box, prepared);
 	const fitted = await fitQuadFromMask(maskUrl);
-	const ids = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
-	const corners = fitted.quad.map((point, index) => ({
-		id: ids[index],
-		x: Math.max(0, Math.min(prepared.originalWidth, (point.x - prepared.padX) / prepared.scale)),
-		y: Math.max(0, Math.min(prepared.originalHeight, (point.y - prepared.padY) / prepared.scale))
-	}));
+    // fitQuadFromMask now receives a native-resolution mask: no inverse letterbox here.
+    const original = fitted.quad as Quad;
+    let refinement: EdgeRefinement;
+    try {
+        refinement = await refineCardImage(file, original);
+    } catch (error) {
+        // A refinement failure must not discard a usable mask-fit detection.
+        console.warn('Image-edge refinement unavailable; retaining mask-fit quad', error);
+        refinement = { original, refined: original, accepted: false,
+            reason: 'Image-edge refinement failed; retained mask-fit quad',
+            corner_shift_px: [0,0,0,0], search_radius_px: 0, edges: [] };
+    }
+    const ids = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
+    const corners = refinement.refined.map((point,index)=>({id:ids[index],x:point.x,y:point.y}));
 
 	return {
 		ok: true,
@@ -299,6 +282,8 @@ export async function inferCorners(file: File) {
 		confidence: detection.confidence,
 		corners,
 		refine_score: fitted.score,
-		quad_metrics: fitted.metrics
+		quad_metrics: fitted.metrics, // Baseline mask-fit metrics, not refined accuracy.
+        original_corners: original,
+        edge_refinement: refinement
 	};
 }
