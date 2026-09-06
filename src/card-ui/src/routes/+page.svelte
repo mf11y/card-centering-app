@@ -1877,6 +1877,7 @@ const inputController = createInputController({
 								role="button"
 								tabindex="0"
 								aria-label="Deselect corners and edges"
+                                onpointerdown={(e) => { e.preventDefault(); }}
 								onclick={(e) => {
 									e.stopPropagation();
 									selectTarget(null);
@@ -3564,6 +3565,11 @@ const inputController = createInputController({
 </div>
 
 <style>
+    rect[aria-label="Deselect corners and edges"]:focus:not(:focus-visible),
+    rect[aria-label="Clear mini-map selection"]:focus:not(:focus-visible) {
+        outline: none;
+    }
+
     .curved-assist-toggle { position:relative; display:inline-flex; align-items:center; gap:9px; cursor:pointer; user-select:none; min-height:28px; }
     .curved-assist-toggle input { position:absolute; width:1px; height:1px; opacity:0; }
     .curved-assist-track { display:flex; align-items:center; width:34px; height:20px; padding:3px; border:1px solid var(--color-zinc-600); border-radius:999px; background:var(--color-zinc-950); box-sizing:border-box; }
