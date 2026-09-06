@@ -60,7 +60,6 @@
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
 	import { inferCorners, preloadInferenceModel } from '../lib/card-centering/api';
-	import { computeZoomMetrics } from '../lib/card-centering/view';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
 
 	import { createInputController, type Direction } from '../lib/card-centering/controller';
@@ -514,8 +513,8 @@ const inputController = createInputController({
 
 		if (draggedCorner) {
 			selectTarget({ type: 'corner', key: draggedCorner });
-		}
-		if (didDragCorner) {
+            // Selection zoom can move the handle away from the pointer, so the
+            // release click may land on the canvas even without a drag.
 			suppressClearSelectionUntil = Date.now() + 250;
 		}
 
@@ -1083,43 +1082,27 @@ const inputController = createInputController({
 	 *   layout measurements, reveals the source image, and triggers any pending detection request.
 	 */
 	function applyInitialSourceZoomToCorners() {
-		if (!imageEl) return;
-
-		const naturalWidth = imageEl.naturalWidth || 1;
-		const naturalHeight = imageEl.naturalHeight || 1;
-
-		const centerX =
-			(corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4;
-
-		const centerY =
-			(corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4;
-
-		const z = computeZoomMetrics({
-			autoZoomToCorners: true,
-			displayedImageRect,
-			naturalWidth,
-			naturalHeight,
-			corners
-		});
-
-		const nextZoom = clampImageViewZoom(z.scale);
-
-		const centerDisplayX = (centerX / naturalWidth) * displayedImageRect.width;
-		const centerDisplayY = (centerY / naturalHeight) * displayedImageRect.height;
-
-		const viewportCenterX = displayedImageRect.width / 2;
-		const viewportCenterY = displayedImageRect.height / 2;
-
-		sourceViewZoom = nextZoom;
-		sourceViewPan = clampViewPan(
-			{
-				x: viewportCenterX - centerDisplayX * nextZoom,
-				y: viewportCenterY - centerDisplayY * nextZoom
-			},
-			nextZoom,
-			'source'
-		);
-	}
+        if (!imageEl || !containerEl) return;
+        const rect = displayedImageRect;
+        if (!rect.width || !rect.height) return;
+        const points = Object.values(corners);
+        const xs = points.map(p => p.x / imageEl.naturalWidth * rect.width);
+        const ys = points.map(p => p.y / imageEl.naturalHeight * rect.height);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const width = containerEl.clientWidth, height = containerEl.clientHeight;
+        // Fit the detected card to the full canvas, with room outside its corner arrows.
+        const margin = Math.min(40, Math.min(width, height) * 0.1);
+        const zoom = clampImageViewZoom(Math.min(
+            (width - margin * 2) / Math.max(1, maxX - minX),
+            (height - margin * 2) / Math.max(1, maxY - minY)
+        ));
+        sourceViewZoom = zoom;
+        sourceViewPan = {
+            x: width / 2 - rect.x - (minX + maxX) / 2 * zoom,
+            y: height / 2 - rect.y - (minY + maxY) / 2 * zoom
+        };
+    }
 
 	function runWarpPreview() {
 		if (!imageEl) return;
@@ -1593,7 +1576,6 @@ const inputController = createInputController({
     let focusedSourceTarget = '';
     $effect(() => {
         const target = selectedTarget;
-        const dragging = draggingCorner;
         untrack(() => {
             if (!target || target.type === 'guide') {
                 if (sourceOverview) {
@@ -1604,8 +1586,8 @@ const inputController = createInputController({
                 focusedSourceTarget = '';
                 return;
             }
-            // Don't move the image under a pointer during a corner drag.
-            if (dragging || !imageEl || !warpedImageUrl || !displayedImageRect.width) return;
+            // Focus on selection, including pointer-down; drag deltas use the new zoom.
+            if (!imageEl || !warpedImageUrl || !displayedImageRect.width) return;
             const key = `${target.type}:${target.key}`;
             if (key === focusedSourceTarget) return;
             sourceOverview ??= { zoom: sourceViewZoom, pan: { ...sourceViewPan } };
