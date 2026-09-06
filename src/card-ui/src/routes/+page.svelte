@@ -66,7 +66,6 @@
 	import { createInputController, type Direction } from '../lib/card-centering/controller';
 	import { moveCornerValue, applyGuideDirection } from '$lib/card-centering/movement';
 	import {
-		drawCornerZoomPatch,
 		type CornerKey,
 		type CornerMap
 	} from '$lib/card-centering/corner-zoom';
@@ -198,7 +197,6 @@ const inputController = createInputController({
 	let displayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 	let warpContainerEl = $state.raw<HTMLDivElement | null>(null);
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
-	let cornerZoomCanvas = $state.raw<HTMLCanvasElement | null>(null);
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
 	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
 
@@ -646,7 +644,6 @@ const inputController = createInputController({
 	const bottomPx = $derived((guideInsetsPct.bottom / 100) * warpDisplayedImageRect.height);
 	const leftPx = $derived((guideInsetsPct.left / 100) * warpDisplayedImageRect.width);
 	const rightPx = $derived((guideInsetsPct.right / 100) * warpDisplayedImageRect.width);
-	const showCornerZoomPatch = $derived(imageUrl && activeCorner && sourceViewZoom <= 1.001);
 
 	/**
 	 * Independent source/warp preview zoom, pan, and pinch helpers.
@@ -1591,32 +1588,41 @@ const inputController = createInputController({
 	 * sync with manual adjustments.
 	 */
 
-	$effect(() => {
-		showCornerZoomPatch;
-		activeCorner;
-		corners.topLeft.x;
-		corners.topLeft.y;
-		corners.topRight.x;
-		corners.topRight.y;
-		corners.bottomRight.x;
-		corners.bottomRight.y;
-		corners.bottomLeft.x;
-		corners.bottomLeft.y;
-		imageUrl;
-
-		if (!showCornerZoomPatch) return;
-
-		requestAnimationFrame(() => {
-			drawCornerZoomPatch({
-				canvas: cornerZoomCanvas,
-				image: imageEl,
-				activeCorner: activeCorner as CornerKey | null,
-				corners: corners as CornerMap,
-				patchRadius: CORNER_PATCH_RADIUS,
-				outputSize: CORNER_ZOOM_SIZE
-			});
-		});
-	});
+    let sourceOverview: { zoom: number; pan: { x: number; y: number } } | null = null;
+    let focusedSourceTarget = '';
+    $effect(() => {
+        const target = selectedTarget;
+        const dragging = draggingCorner;
+        untrack(() => {
+            if (!target || target.type === 'guide') {
+                if (sourceOverview) {
+                    sourceViewZoom = sourceOverview.zoom;
+                    sourceViewPan = sourceOverview.pan;
+                }
+                sourceOverview = null;
+                focusedSourceTarget = '';
+                return;
+            }
+            // Don't move the image under a pointer during a corner drag.
+            if (dragging || !imageEl || !warpedImageUrl || !displayedImageRect.width) return;
+            const key = `${target.type}:${target.key}`;
+            if (key === focusedSourceTarget) return;
+            sourceOverview ??= { zoom: sourceViewZoom, pan: { ...sourceViewPan } };
+            const q = [corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft];
+            const i = target.type === 'bow' ? sides.indexOf(target.key) : 0;
+            const point = target.type === 'corner' ? corners[target.key] : {
+                x: (q[i].x + q[(i + 1) % 4].x) / 2,
+                y: (q[i].y + q[(i + 1) % 4].y) / 2
+            };
+            const zoom = Math.max(sourceViewZoom, 2.5);
+            sourceViewZoom = zoom;
+            sourceViewPan = clampViewPan({
+                x: displayedImageRect.width / 2 - point.x / imageEl.naturalWidth * displayedImageRect.width * zoom,
+                y: displayedImageRect.height / 2 - point.y / imageEl.naturalHeight * displayedImageRect.height * zoom
+            }, zoom, 'source');
+            focusedSourceTarget = key;
+        });
+    });
 
 	/**
 	 * Component lifecycle hooks.
@@ -1793,7 +1799,7 @@ const inputController = createInputController({
                 <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">
                     <div class="border-b border-zinc-800 px-5 py-4">
                         <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase"><span class="hidden xl:inline">Adjustments</span><span class="xl:hidden">INSTRUCTIONS | ABOUT</span></h2>
-                        <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners and inner guides.</p>
+                        <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners (SOURCE PANEL) and inner guides (WARP PANEL).</p>
                     </div>
                     <div class="p-5">
 <div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
@@ -2413,7 +2419,7 @@ const inputController = createInputController({
 															x2={imageXToPercent(corners.topRight.x)}
 															y2={imageYToPercent(corners.topRight.y)}
 															stroke="#22d3ee"
-															stroke-width="2"
+															stroke-width={Math.max(1.5, 3 - sourceViewZoom) / sourceViewZoom}
 															stroke-dasharray="none"
 															opacity="1"
 														/>
@@ -2424,7 +2430,7 @@ const inputController = createInputController({
 															x2={imageXToPercent(corners.bottomRight.x)}
 															y2={imageYToPercent(corners.bottomRight.y)}
 															stroke="#22d3ee"
-															stroke-width="2"
+															stroke-width={Math.max(1.5, 3 - sourceViewZoom) / sourceViewZoom}
 															stroke-dasharray="none"
 															opacity="1"
 														/>
@@ -2435,7 +2441,7 @@ const inputController = createInputController({
 															x2={imageXToPercent(corners.bottomLeft.x)}
 															y2={imageYToPercent(corners.bottomLeft.y)}
 															stroke="#22d3ee"
-															stroke-width="2"
+															stroke-width={Math.max(1.5, 3 - sourceViewZoom) / sourceViewZoom}
 															stroke-dasharray="none"
 															opacity="1"
 														/>
@@ -2446,7 +2452,7 @@ const inputController = createInputController({
 															x2={imageXToPercent(corners.topLeft.x)}
 															y2={imageYToPercent(corners.topLeft.y)}
 															stroke="#22d3ee"
-															stroke-width="2"
+															stroke-width={Math.max(1.5, 3 - sourceViewZoom) / sourceViewZoom}
 															stroke-dasharray="none"
 															opacity="1"
 														/>
@@ -2551,25 +2557,6 @@ const inputController = createInputController({
 									{/if}
 								{/if}
 							</div>
-							{#if imageUrl}
-								<div
-									class={`pointer-events-none absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-all duration-150 ease-out ${
-										showCornerZoomPatch ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-									}`}
-								>
-									<div
-										class="corner-zoom-frame pointer-events-none relative border-2 border-solid border-cyan-400 p-0"
-										style="box-shadow: 0 4px 12px rgba(0,0,0,0.5);"
-									>
-										<canvas
-											bind:this={cornerZoomCanvas}
-											width={CORNER_ZOOM_SIZE}
-											height={CORNER_ZOOM_SIZE}
-											class="relative z-10 h-[200px] w-[200px]"
-										></canvas>
-									</div>
-								</div>
-							{/if}
 						</div>
 					</div>
 

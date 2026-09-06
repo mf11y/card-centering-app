@@ -32,7 +32,7 @@
             {#each mapping.grid[0] as _,i}<polyline points={mapping.grid.map(row=>`${row[i].x},${row[i].y}`).join(' ')} fill="none" stroke="#a78bfa" stroke-width="1" vector-effect="non-scaling-stroke" />{/each}
         {/if}
         {#each geometry.curves as c}
-            <path d={`M ${c.a.x} ${c.a.y} Q ${c.control.x} ${c.control.y} ${c.b.x} ${c.b.y}`} fill="none" stroke="#22d3ee" stroke-width={2/zoom} vector-effect="non-scaling-stroke" />
+            <path d={`M ${c.a.x} ${c.a.y} Q ${c.control.x} ${c.control.y} ${c.b.x} ${c.b.y}`} fill="none" stroke="#22d3ee" stroke-width={Math.max(1.5, 3 - zoom) / zoom} vector-effect="non-scaling-stroke" />
         {/each}
     </svg>
     {#each geometry.curves as c}
