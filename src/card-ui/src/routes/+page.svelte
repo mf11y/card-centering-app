@@ -49,6 +49,9 @@
 	let tutorialActive = $state(false);
     let howToUseOpen = $state(false);
 	import { logUploadedImage } from "../lib/upload-logging";
+    import { lookupRecentUpload, saveRecentDetection, reportCacheInference, type UploadLookup } from '../lib/recent-upload-cache';
+    let activeUploadCache: UploadLookup | null = null;
+    let uploadGeneration = 0;
 	import { html2canvas } from 'html2canvas-pro';
 	import { onMount, onDestroy, tick, untrack } from 'svelte';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
@@ -982,6 +985,8 @@ const inputController = createInputController({
 		if (input) input.value = '';
 	}
 	function resetHandler() {
+        uploadGeneration++;
+        activeUploadCache = null;
 		revokeWorkingUrls();
 
 		imageFile = null;
@@ -1013,9 +1018,14 @@ const inputController = createInputController({
 		if (!file.type.startsWith('image/') || actionRowBusy || imageUrl) return;
 
 		actionRowBusy = true;
-		logUploadedImage(file);
+        const generation = ++uploadGeneration;
+        const cached = await lookupRecentUpload(file);
+        if (generation !== uploadGeneration) return;
+        activeUploadCache = cached;
+        if (!cached.hit) logUploadedImage(file);
 		await new Promise((resolve) => setTimeout(resolve, ACTION_ROW_TRANSITION_MS));
-		loadFile(file);
+        if (generation !== uploadGeneration) return;
+		loadFile(new File([cached.blob], file.name, { type: cached.blob.type || file.type }));
 	}
 	async function loadTryMeImage() {
 		if (isSegmenting || actionRowBusy || imageUrl) return;
@@ -1028,7 +1038,8 @@ const inputController = createInputController({
 				throw new Error('Could not load tryme.webp');
 			}
 
-			const blob = await response.blob();
+			activeUploadCache = null;
+            const blob = await response.blob();
 
 			const file = new File([blob], 'tryme.webp', {
 				type: blob.type || 'image/webp'
@@ -1181,12 +1192,16 @@ const inputController = createInputController({
 		runWarpPreview();
 	}
 	async function runSegmentationInBrowser() {
-		if (!imageFile || !imageEl) return;
-
+		if (!imageFile || !imageEl || isSegmenting) return;
+        const file = imageFile;
+        const generation = uploadGeneration;
+        const cached = activeUploadCache;
 		isSegmenting = true;
 
 		try {
-			const result = await inferCorners(imageFile);
+            reportCacheInference(cached?.result ? 'reused' : 'rerun');
+			const result = cached?.result ?? await inferCorners(file);
+            if (generation !== uploadGeneration || file !== imageFile) return;
 
 			if (segmentationMaskUrl?.startsWith('blob:')) {
 				URL.revokeObjectURL(segmentationMaskUrl);
@@ -1207,6 +1222,11 @@ const inputController = createInputController({
 				throw new Error('Browser inference returned invalid corners');
 			}
 
+            if (cached?.sha256 && !cached.result) {
+                const saved = { ok: result.ok, corners: result.corners, mask_data_url: result.mask_data_url };
+                cached.result = saved;
+                void saveRecentDetection(cached.sha256, saved);
+            }
 			applyReturnedCorners(result.corners);
 
 			if (sourceViewZoom === 1) {
@@ -2320,14 +2340,7 @@ const inputController = createInputController({
 								type="file"
 								accept="image/*"
 								class="hidden"
-								onchange={(e) => {
-									handleFileChange(e);
-									setTimeout(() => {
-										if (imageFile && imageUrl) {
-											runSegmentationInBrowser();
-										}
-									}, 0);
-								}}
+								onchange={handleFileChange}
 								disabled={!!imageUrl}
 							/>
 
