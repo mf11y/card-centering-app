@@ -44,14 +44,14 @@ Visually check automatic guides before relying on the measurements. Perspective 
 
 Card inference and measurement run in the browser. **Uploads are not necessarily local-only:** the app also makes a best-effort `/api/log-upload` request to retain images for improving detection. Capture failure does not block card processing.
 
-- Development capture writes to `api/card-api/upload_logs/`, or the directory specified by `UPLOAD_LOG_DIR`.
+- Development capture creates `api/card-api/upload_logs/` as needed, or uses the directory specified by `UPLOAD_LOG_DIR`. This is a runtime data directory, not a separate Python service or a tracked source folder.
 - Production capture uses private Vercel Blob storage and requires server-side storage configuration. It does not fall back to production disk.
 - Independently, IndexedDB stores up to five unique original images in the user's browser, evicting the least recently used entry.
 - Exact duplicates are identified by SHA-256 of file bytes, not filenames. A cache hit avoids another capture request.
 - Cached original images survive model updates. Derived analysis is reused only when its processing version matches; otherwise processing runs again from the cached image.
 - Clearing browser site data removes the local cache. Storage or hashing failures fall back to the uncached workflow.
 
-See [upload logging](UPLOAD_LOGGING.md) and [recent-upload cache](src/card-ui/RECENT_UPLOAD_CACHE.md) for implementation details. Keep storage credentials on the server.
+Keep storage credentials on the server. Connect a private Vercel Blob store to the deployment environment; the SDK uses the connected store and Vercel-managed credentials. Storage configuration failures do not block browser processing.
 
 ## Run locally
 
@@ -66,7 +66,7 @@ npm run dev -- --host 127.0.0.1
 
 Open the local URL printed by Vite (normally `http://127.0.0.1:5173`). On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm`.
 
-Both model assets are included under `src/card-ui/static/models/`. The normal browser workflow does not require the Python API or a separate inference server.
+Both model assets are included under `src/card-ui/static/models/`. No separate inference server is required.
 
 ## Development and deployment
 
@@ -81,16 +81,7 @@ npm run preview
 
 The app is configured with the Vercel adapter; set the deployment root to `src/card-ui`. Local Windows builds may encounter an `EPERM` symlink error during Vercel packaging even after client/server compilation succeeds.
 
-Model fingerprints are generated automatically at dev/build startup. Restart the dev server after replacing model assets. For output-affecting algorithm changes, update `CARD_PIPELINE_COMPAT_VERSION` in `processing-version.ts`; cosmetic changes do not require a version bump.
-
-Useful checks:
-
-```sh
-node --test scripts/model-fingerprints.test.mjs
-node --test scripts/tutorial.test.ts scripts/learned-inner-ranker.test.ts scripts/top-inner-rescue.test.ts
-```
-
-These are targeted checks, not a complete end-to-end test suite. Browser cache verification and its prerequisites are documented in [RECENT_UPLOAD_CACHE.md](src/card-ui/RECENT_UPLOAD_CACHE.md).
+Model fingerprints are generated automatically at dev/build startup. Restart the dev server after replacing model assets. For output-affecting algorithm changes, update `CARD_PIPELINE_COMPAT_VERSION` in [processing-version.ts](src/card-ui/src/lib/card-centering/processing-version.ts); cosmetic changes do not require a version bump.
 
 ## Repository map
 
@@ -103,11 +94,5 @@ These are targeted checks, not a complete end-to-end test suite. Browser cache v
 | `src/card-ui/src/lib/recent-upload-cache.ts` | IndexedDB upload cache |
 | `src/card-ui/src/routes/api/log-upload/` | Best-effort capture endpoint |
 | `src/card-ui/static/models/` | Browser model assets |
-| `src/card-ui/scripts/` | Focused tests and diagnostic utilities |
-| `api/card-api/` | Python API tooling, separate from the normal browser workflow |
+| `src/card-ui/scripts/model-fingerprints.mjs` | Build-time model fingerprinting |
 
-## Technical docs
-
-- [Learned inner-border ranker](src/card-ui/LEARNED_INNER_RANKER.md): architecture, model details, and rollback instructions. Historical rollout notes describe the original integration session.
-- [Recent-upload cache](src/card-ui/RECENT_UPLOAD_CACHE.md): browser image storage and processing-version compatibility.
-- [Upload logging](UPLOAD_LOGGING.md): upload capture and server-side storage behavior.
