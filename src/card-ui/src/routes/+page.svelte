@@ -35,11 +35,13 @@
     let edgeBows = $state(emptyBow());
     $effect(() => {
         curvedAssist; edgeBows.top; edgeBows.right; edgeBows.bottom; edgeBows.left;
-        const frame=requestAnimationFrame(()=>{if(imageEl && warpedImageUrl)runWarpPreview();});
-        const settle=setTimeout(()=>{
-            if(imageEl && warpedImageUrl) { initialGuidesPending=true; guideGuessGeneration++; runWarpPreview(); }
-        },180);
-        return ()=>{cancelAnimationFrame(frame);clearTimeout(settle);};
+        untrack(() => {
+            if (imageEl && warpedImageUrl) {
+                initialGuidesPending = true;
+                guideGuessGeneration++;
+                scheduleNudgeWarp();
+            }
+        });
     });
 
 
@@ -48,7 +50,7 @@
     let howToUseOpen = $state(false);
 	import { logUploadedImage } from "../lib/upload-logging";
 	import { html2canvas } from 'html2canvas-pro';
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy, tick, untrack } from 'svelte';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
 	import type { Quad } from '../lib/card-centering/geometry';
 	import { guessInnerBorders } from '../lib/card-centering/inner-border';
@@ -95,7 +97,7 @@ const inputController = createInputController({
 	 * - FINE_DRAG_SENSITIVITY: reduced drag fraction applied while Shift is held.
 	 */
 
-	const NUDGE_WARP_DELAY = 150;
+	const NUDGE_WARP_DELAY = 400;
 	const CORNER_PATCH_RADIUS = 150;
 	const CORNER_ZOOM_SIZE = 150;
 	const SOURCE_OVERLAY_PADDING = 28;
@@ -433,6 +435,13 @@ const inputController = createInputController({
 
 		corners = moveCornerValue(corners, cornerKey, dx, dy, naturalWidth, naturalHeight);
 
+		// Re-estimate untouched inner guides after the changed source geometry is warped.
+		// Invalidate older asynchronous estimates immediately, including during a drag.
+		initialGuidesPending = true;
+		guideGuessGeneration++;
+
+		if (nudgeWarpTimeout) clearTimeout(nudgeWarpTimeout);
+		nudgeWarpTimeout = null;
 		if (updateWarp) {
 			scheduleNudgeWarp();
 		}
@@ -509,7 +518,7 @@ const inputController = createInputController({
 		}
 
 		didDragCorner = false;
-		runWarpPreview();
+		scheduleNudgeWarp();
 	}
 
 	function onGuidePointerMove(e: PointerEvent) {
