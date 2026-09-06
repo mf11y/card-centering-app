@@ -39,3 +39,132 @@
     --color-zinc-950: #1d1829;
     --centering-panel-bg: #261e33;
 }
+
+/* Retro Lab is a visual skin only: no grid, panel dimensions or preview sizing overrides. */
+[data-theme='retro'] {
+    --color-zinc-50: #edf5ef;
+    --color-zinc-100: #d4e1db;
+    --color-zinc-200: #c0d4c9;
+    --color-zinc-300: #b1cabe;
+    --color-zinc-400: #9bb7ad;
+    --color-zinc-500: #819d95;
+    --color-zinc-600: #57776c;
+    --color-zinc-700: #35504d;
+    --color-zinc-800: #293f3d;
+    --color-zinc-900: #162327;
+    --color-zinc-950: #101a1d;
+    --color-cyan-300: #efd393;
+    --color-cyan-400: #e1b961;
+    --color-cyan-500: #cba34c;
+    --color-cyan-600: #aa873c;
+    --centering-panel-bg: #07130f;
+    font-family: Consolas, 'Liberation Mono', monospace;
+    font-variant-numeric: tabular-nums;
+}
+/* Instrument styling is shared; the theme switch changes only the palette. */
+[data-theme] {
+    font-family: Consolas, 'Liberation Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    --instrument-accent: #bdc8d8;
+    --instrument-accent-hover: #e2e8f0;
+    --instrument-readout: #d3dfed;
+}
+[data-theme='retro'] {
+    --instrument-accent: #e1b961;
+    --instrument-accent-hover: #efd393;
+    --instrument-readout: #a4d8b3;
+}
+[data-theme='coral'] {
+    --instrument-accent: #f0a08d;
+    --instrument-accent-hover: #ffd0bf;
+    --instrument-readout: #f5c5b6;
+    --color-cyan-300: #ffd0bf;
+    --color-cyan-400: #f0a08d;
+    --color-cyan-500: #d68875;
+    --color-cyan-600: #b46959;
+}
+[data-theme='amethyst'] {
+    --instrument-accent: #c4a0e8;
+    --instrument-accent-hover: #e3c9fa;
+    --instrument-readout: #dbc8ed;
+    --color-cyan-300: #e3c9fa;
+    --color-cyan-400: #c4a0e8;
+    --color-cyan-500: #aa82d0;
+    --color-cyan-600: #8b64af;
+}
+[data-theme][data-theme] header {
+    background: var(--color-zinc-950);
+    border-bottom-color: var(--color-zinc-600);
+    box-shadow: inset 0 -3px var(--color-zinc-950), inset 0 -4px var(--color-zinc-700);
+}
+[data-theme][data-theme] h1 { text-transform: uppercase; letter-spacing: .06em; }
+[data-theme][data-theme] h2 { color: var(--color-zinc-100); letter-spacing: .08em; }
+[data-theme][data-theme] section {
+    box-shadow: none;
+    border-color: var(--color-zinc-700);
+}
+[data-theme][data-theme] section > .border-b {
+    border-color: var(--color-zinc-700);
+    box-shadow: inset 0 -3px var(--color-zinc-900), inset 0 -4px var(--color-zinc-700);
+}
+[data-theme][data-theme] .rounded-2xl {
+    border-radius: 3px;
+    background-color: transparent;
+    border-color: transparent;
+}
+[data-theme][data-theme] button.rounded-lg,
+[data-theme][data-theme] button.rounded-xl,
+[data-theme][data-theme] select { border-radius: 3px; }
+[data-theme][data-theme] .tutorial-tab {
+    background: var(--color-zinc-900);
+    border-color: var(--color-zinc-600);
+    border-radius: 3px;
+    box-shadow: none;
+    color: var(--color-zinc-100);
+}
+[data-theme][data-theme] .tutorial-tab-icon { color: var(--instrument-accent); }
+[data-theme][data-theme] .tutorial-tab:hover,
+[data-theme][data-theme] .tutorial-tab.active {
+    background: var(--color-zinc-800);
+    border-color: var(--instrument-accent);
+    box-shadow: none;
+    color: var(--instrument-accent-hover);
+}
+[data-theme][data-theme] [data-tour='upload'] {
+    background: var(--instrument-accent);
+    border-color: var(--instrument-accent);
+    color: var(--color-zinc-950);
+    box-shadow: none;
+}
+[data-theme][data-theme] [data-tour='upload']:hover { background: var(--instrument-accent-hover); }
+[data-theme][data-theme] [data-tour='results'] .rounded-xl {
+    background: var(--centering-panel-bg, var(--color-zinc-950));
+    border-color: var(--color-zinc-700);
+    border-radius: 3px;
+    box-shadow: inset 0 0 20px #0002;
+}
+[data-theme][data-theme] [data-tour='results'] .text-2xl {
+    color: var(--instrument-readout);
+    font-family: Consolas, 'Liberation Mono', monospace;
+    font-variant-numeric: tabular-nums;
+}
+[data-theme][data-theme] [data-tour='source'] {
+    border-color: var(--color-zinc-700);
+    border-style: solid;
+    /* Inset calibration ticks do not occupy layout space or intercept gestures. */
+    background-image: repeating-linear-gradient(90deg, transparent 0 19px, var(--color-zinc-700) 19px 20px);
+    background-size: 100% 7px;
+    background-position: left top;
+    background-repeat: no-repeat;
+}
+[data-theme][data-theme] .curved-assist-toggle input:checked + .curved-assist-track {
+    background: var(--color-zinc-700);
+    border-color: var(--instrument-accent);
+    box-shadow: none;
+}
+[data-theme][data-theme] .curved-assist-toggle:hover .curved-assist-track { border-color: var(--instrument-accent); }
+[data-theme][data-theme] .curved-assist-help { border-radius: 3px; }
+[data-theme][data-theme] footer { border-top-color: var(--color-zinc-600); }
+[data-theme][data-theme] .theme-swatch {
+    background: linear-gradient(135deg, var(--color-zinc-950) 0 50%, var(--instrument-accent) 50% 75%, var(--instrument-readout) 75%);
+}

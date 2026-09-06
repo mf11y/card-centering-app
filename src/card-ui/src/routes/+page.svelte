@@ -59,7 +59,6 @@
 	import { guessInnerBorders } from '../lib/card-centering/inner-border';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
-	import { formatPct } from '../lib/card-centering/format';
 	import { inferCorners, preloadInferenceModel } from '../lib/card-centering/api';
 	import { computeZoomMetrics } from '../lib/card-centering/view';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
@@ -158,9 +157,9 @@ const inputController = createInputController({
 	});
 	let initialGuidesPending = true;
 	let guideGuessGeneration = 0;
-	const themes = ['charcoal', 'coral', 'amethyst'] as const;
-	const themeNames = { charcoal: 'Charcoal', coral: 'Coral', amethyst: 'Amethyst' };
-	let theme = $state<(typeof themes)[number]>('charcoal');
+	const themes = ['retro', 'charcoal', 'coral', 'amethyst'] as const;
+	const themeNames = { retro: 'Retro Lab', charcoal: 'Charcoal', coral: 'Coral', amethyst: 'Amethyst' };
+	let theme = $state<(typeof themes)[number]>('retro');
 	const nextTheme = $derived(themes[(themes.indexOf(theme) + 1) % themes.length]);
 	let themeSwitchVersion = 0;
 	async function toggleTheme(event: MouseEvent) {
@@ -170,7 +169,7 @@ const inputController = createInputController({
 		// Apply the transition override before changing inherited palette variables.
 		if (root) void getComputedStyle(root).transitionProperty;
 		theme = nextTheme;
-		try { localStorage.setItem('card-centering-theme', theme); } catch { /* Storage is optional. */ }
+		try { localStorage.setItem('card-centering-theme-v2', theme); } catch { /* Storage is optional. */ }
 		await tick();
 		if (root) void root.offsetWidth;
 		requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1629,8 +1628,8 @@ const inputController = createInputController({
 
 	onMount(() => {
 		try {
-			const savedTheme = localStorage.getItem('card-centering-theme');
-			if (savedTheme === 'coral' || savedTheme === 'amethyst') theme = savedTheme;
+			const savedTheme = localStorage.getItem('card-centering-theme-v2');
+			if (savedTheme === 'retro' || savedTheme === 'charcoal' || savedTheme === 'coral' || savedTheme === 'amethyst') theme = savedTheme;
 		} catch { /* Use Charcoal when storage is unavailable. */ }
 		void preloadInferenceModel().catch((error) => {
 			console.warn('Could not preload the browser inference model; upload will retry.', error);
@@ -2185,6 +2184,7 @@ const inputController = createInputController({
 							</div>
 						</div>
 
+						<hr class="mt-5 border-0 border-t border-zinc-700" />
 						<div class="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
 							<div class="space-y-3 text-sm leading-relaxed text-zinc-400">
 								<div class="hidden xl:block pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">How to Use</div>
@@ -2204,31 +2204,31 @@ const inputController = createInputController({
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Check the outer corners.</strong>
-								        Detection places the corners in Source and straightens the card in Warp Preview.
+								        Detection places the corners in the SOURCE PANEL and straightens the card in the WARP PANEL.
 								        Verify the outline follows the card itself, not a sleeve or slab.
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Check the inner borders.</strong>
-								        The tool looks for nearby printed edges to place the guides. These are starting
+								        In the WARP PANEL, the tool looks for nearby printed edges to place the guides. These are starting
 								        estimates; unclear edges keep the default positions. Align each guide with the
 								        boundary between the card border and its printed design.
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Fine-tune.</strong>
-								        Select a corner or side on the mini map: corners control Source, sides control
-								        the inner guides in Warp Preview. The SOURCE mini map controls corners only. Drag the handles or nudge <span class="hidden xl:inline">with WASD or keyboard arrow keys, or </span>
-								        with the arrow pad. Lower Step Size for finer moves. <span class="hidden xl:inline">Use the mouse scroll wheel over either Source or Warp Preview to zoom in and out.</span><span class="xl:hidden">On either Source or Warp Preview, spread two fingers apart to zoom in and pinch them together to zoom out.</span>
+								        Select a corner or side on the mini map: corners control the SOURCE PANEL, sides control
+								        the inner guides in the WARP PANEL. The SOURCE PANEL mini map controls corners only. Drag the handles or nudge <span class="hidden xl:inline">with WASD or keyboard arrow keys, or </span>
+								        with the arrow pad. Lower Step Size for finer moves. <span class="hidden xl:inline">Use the mouse scroll wheel over either the SOURCE PANEL or the WARP PANEL to zoom in and out.</span><span class="xl:hidden">On either the SOURCE PANEL or the WARP PANEL, spread two fingers apart to zoom in and pinch them together to zoom out.</span>
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Read the split.</strong>
-								        Values appear once the card preview is ready. Top/Bottom measures vertical
+								        Values appear in the WARP PANEL once the card preview is ready. Top/Bottom measures vertical
 								        centering; Left/Right measures horizontal centering. Closer to 50/50 means more
 								        even borders. Red flags a less even split; the pink-purple glow marks near-50/50
 								        after you adjust that pair of guides.
 								    </li>
 								    <li>
 								        <strong class="text-zinc-200">Save or start again.</strong>
-								        The camera button downloads the warp panel and measurements. Exported highlights
+								        The camera button downloads the WARP PANEL and measurements. Exported highlights
 								        use simple purple styling for readability. Reset clears the card for your next upload.
 								    </li>
 								</ol>
@@ -2237,9 +2237,9 @@ const inputController = createInputController({
 								    Preview &amp; Themes
 								</div>
 								<ul class="list-disc space-y-2 pl-5">
-								    <li>Use FX to cycle through Original, High contrast, and Grayscale contrast to inspect borders.</li>
-								    <li>The sun/moon button switches the warp panel between dark and light backgrounds.</li>
-								    <li>The square in the header cycles Charcoal, Coral, and Amethyst. Your choice is saved.</li>
+								    <li>Use FX in the WARP PANEL to cycle through Original, High contrast, and Grayscale contrast to inspect borders.</li>
+								    <li>The sun/moon button switches the WARP PANEL between dark and light backgrounds.</li>
+								    <li>The square in the header cycles Retro Lab, Charcoal, Coral, and Amethyst. Your choice is saved.</li>
 								</ul>
 								<p class="pt-2">
 								    Always review the guides before trusting the numbers. The glow reflects guide positions,
@@ -2278,7 +2278,7 @@ const inputController = createInputController({
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
-							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source</h2>
+							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source Panel</h2>
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
                             <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300">
                                 <label class="curved-assist-toggle">
@@ -2307,7 +2307,7 @@ const inputController = createInputController({
 					</div>
 
 					<div
-						class="relative aspect-[5/7] w-full border border-dashed border-zinc-700 bg-zinc-950"
+						class="relative aspect-[5/7] w-full border border-transparent bg-zinc-950"
 					>
 						<div
 							role="button"
@@ -2805,7 +2805,7 @@ const inputController = createInputController({
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">
-								Warp Preview
+								Warp Panel
 							</h2>
 							<p class="text-xs text-zinc-500">Live output from current corner positions</p>
 						</div>
@@ -2882,7 +2882,7 @@ const inputController = createInputController({
 															: 'text-zinc-100'
 												}`}
 											>
-												{warpedImageUrl ? formatPct(centeringStats.topPct) : '--.-%'}
+												{warpedImageUrl ? centeringStats.topPct.toFixed(1) + '%' : '--.-%'}
 											</div>
 										</div>
 
@@ -2897,7 +2897,7 @@ const inputController = createInputController({
 															: 'text-zinc-100'
 												}`}
 											>
-												{warpedImageUrl ? formatPct(centeringStats.bottomPct) : '--.-%'}
+												{warpedImageUrl ? centeringStats.bottomPct.toFixed(1) + '%' : '--.-%'}
 											</div>
 										</div>
 
@@ -2947,7 +2947,7 @@ const inputController = createInputController({
 															: 'text-zinc-100'
 												}`}
 											>
-												{warpedImageUrl ? formatPct(centeringStats.leftPct) : '--.-%'}
+												{warpedImageUrl ? centeringStats.leftPct.toFixed(1) + '%' : '--.-%'}
 											</div>
 										</div>
 
@@ -2962,7 +2962,7 @@ const inputController = createInputController({
 															: 'text-zinc-100'
 												}`}
 											>
-												{warpedImageUrl ? formatPct(centeringStats.rightPct) : '--.-%'}
+												{warpedImageUrl ? centeringStats.rightPct.toFixed(1) + '%' : '--.-%'}
 											</div>
 										</div>
 
@@ -2994,7 +2994,7 @@ const inputController = createInputController({
 								role="button"
 								tabindex="0"
 								aria-label="Clear active selection"
-								class="relative aspect-[5/7] w-full xl:w-full touch-none overflow-hidden border border-dashed border-zinc-700 bg-zinc-950 focus:outline-none"
+								class="relative aspect-[5/7] w-full xl:w-full touch-none overflow-hidden border-0 bg-zinc-950 focus:outline-none"
 								bind:this={warpContainerEl}
 								data-focus-trap="warp"
 								data-tour="warp"
@@ -3268,7 +3268,7 @@ const inputController = createInputController({
 									<div
 										class="absolute inset-0 flex items-center justify-center rounded-xl text-sm text-zinc-500"
 									>
-										Warp preview will appear here
+										Upload an image to see the perspective warp
 									</div>
 								{/if}
 							</div>
