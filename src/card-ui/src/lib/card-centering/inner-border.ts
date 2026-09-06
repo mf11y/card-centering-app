@@ -1,12 +1,25 @@
+import { applyTopInnerRescue, ENABLE_TOP_INNER_RESCUE, type DepthEvidence } from './top-inner-rescue.ts';
+
 type Insets = Record<'top' | 'bottom' | 'left' | 'right', number>;
 type Pixels = { width: number; height: number; data: Uint8ClampedArray };
 
+export type InnerDiagnostic = {
+ side:keyof Insets; detectorWidth:number; detectorHeight:number; fallback:boolean; reason:string;
+ defaultPct:number; insetPct:number; bestPosition?:number; strength?:number; support?:number;
+ rivalStrength?:number; rivalRatio?:number; searchStart?:number; searchEnd?:number;
+ candidates?:{position:number;strength:number;support:number}[];
+};
 /** Estimate each printed inner edge independently near the initial guide (not the card outline). */
-export function estimateInnerBorders(image: Pixels, defaults: Insets): Insets {
+export function estimateInnerBorders(image: Pixels, defaults: Insets, diagnostics?:InnerDiagnostic[], topEvidence?: (scores: readonly DepthEvidence[]) => void): Insets {
     const result = { ...defaults };
     const { width, height, data } = image;
-    if (Math.min(width, height) < 80) return result;
+    if (Math.min(width, height) < 80) {
+        for(const side of ['top','bottom','left','right'] as const) diagnostics?.push({side,detectorWidth:width,detectorHeight:height,fallback:true,reason:'image too small',defaultPct:defaults[side],insetPct:defaults[side]});
+        return result;
+    }
     for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+        const diagnostic:InnerDiagnostic={side,detectorWidth:width,detectorHeight:height,fallback:true,reason:'weak edge',defaultPct:defaults[side],insetPct:defaults[side]};
+        diagnostics?.push(diagnostic);
         const vertical = side === 'left' || side === 'right';
         const depth = vertical ? width : height;
         const along = vertical ? height : width;
@@ -40,17 +53,37 @@ export function estimateInnerBorders(image: Pixels, defaults: Insets): Insets {
         }
         scores.sort((a, b) => b.strength - a.strength);
         const best = scores[0];
+        if (side === 'top') topEvidence?.(scores);
+        diagnostic.searchStart=start;diagnostic.searchEnd=end;
+        const peaks:typeof scores=[];
+        for(const candidate of scores) if(peaks.every(p=>Math.abs(p.position-candidate.position)>Math.max(3,depth*.008))) {peaks.push(candidate);if(peaks.length===5)break;}
+        diagnostic.candidates=peaks;
+        if(best){diagnostic.bestPosition=best.position;diagnostic.strength=best.strength;diagnostic.support=best.support;}
+
         if (!best || best.strength < 14 || best.support < 0.7) continue;
         const rival = scores.find(candidate => Math.abs(candidate.position - best.position) > Math.max(3, depth * 0.008));
         // Competing parallel borders are ambiguous; leave the guide for manual placement.
-        if (rival && rival.strength > best.strength * 0.8) continue;
+        diagnostic.rivalStrength=rival?.strength;diagnostic.rivalRatio=rival? rival.strength/best.strength:0;
+        if (rival && rival.strength > best.strength * 0.8) {diagnostic.reason='competing parallel edge';continue;}
         result[side] = Math.round(best.position / depth * 10000) / 100;
+        diagnostic.fallback=false;diagnostic.reason='accepted';diagnostic.insetPct=result[side];
     }
     return result;
 }
 
+/** A runs first; OFF follows the original path without collecting extra evidence. */
+export function estimateInnerBordersWithRescue(image: Pixels, defaults: Insets,
+    diagnostics?: InnerDiagnostic[], enabled = ENABLE_TOP_INNER_RESCUE): Insets {
+    if (!enabled) return estimateInnerBorders(image, defaults, diagnostics);
+    const sides: InnerDiagnostic[] = [];
+    let evidence: readonly DepthEvidence[] = [];
+    const original = estimateInnerBorders(image, defaults, sides, scores => { evidence = scores; });
+    diagnostics?.push(...sides);
+    return applyTopInnerRescue(original, sides.find(d => d.side === 'top'), evidence, true).insets;
+}
+
 /** Read a small copy of the existing warp, without changing warping or inference. */
-export async function guessInnerBorders(url: string, defaults: Insets): Promise<Insets> {
+export async function guessInnerBorders(url: string, defaults: Insets, diagnostics?:InnerDiagnostic[]): Promise<Insets> {
     const image = new Image();
     image.src = url;
     await image.decode();
@@ -61,5 +94,11 @@ export async function guessInnerBorders(url: string, defaults: Insets): Promise<
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) return { ...defaults };
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return estimateInnerBorders(context.getImageData(0, 0, canvas.width, canvas.height), defaults);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    try {
+        const { selectLearnedInnerBorders } = await import('./learned-inner-ranker.ts');
+        return await selectLearnedInnerBorders(pixels, defaults, diagnostics);
+    } catch {
+        return estimateInnerBorders(pixels, defaults, diagnostics);
+    }
 }
