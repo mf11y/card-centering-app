@@ -1,42 +1,33 @@
-# sv
+# Card Centering frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+The SvelteKit application for the Card Centering workspace. See the [repository README](../../README.md) for features, usage, architecture, image-storage behavior, and deployment notes.
 
-## Creating a project
+## Development
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
+From this directory, with Node.js 22.18+ and npm:
 
 ```sh
-# recreate this project
-npx sv@0.15.1 create --template minimal --types ts --add prettier tailwindcss="plugins:typography" sveltekit-adapter="adapter:node" --install npm card-ui
+npm ci
+npm run dev -- --host 127.0.0.1
 ```
 
-## Developing
+Open the URL printed by Vite. No separate Python inference server is required. Model files live in `static/models/` and must be present when Vite starts.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
+## Build
 
 ```sh
 npm run build
+npm run preview
 ```
 
-You can preview the production build with `npm run preview`.
+The deployment adapter targets Vercel. Production-mode upload capture needs private Blob storage configuration, including when using local preview; capture errors do not prevent browser processing.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Technical references
+
+- [Upload capture and server configuration](../../UPLOAD_LOGGING.md)
+- [Recent-upload cache and compatibility versioning](RECENT_UPLOAD_CACHE.md)
+- [Learned inner-border ranker and rollback](LEARNED_INNER_RANKER.md)
+- [Curved Edge Assist](scripts/CURVED_EDGE_ASSIST.md)
+- [Outer edge refinement](scripts/EDGE_REFINEMENT.md)
+
+Targeted checks and browser-cache test instructions are linked from the repository README. Run commands from this directory unless a document says otherwise.

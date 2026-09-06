@@ -271,6 +271,7 @@ const inputController = createInputController({
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
 	let actionRowBusy = $state(false);
+	const adjustmentControlsReady = $derived(Boolean(imageUrl) && sourceImageVisible && imageReadyForControls && !isSegmenting && !actionRowBusy);
 
 // ---- UI helper functions ----
 /**
@@ -1797,12 +1798,12 @@ const inputController = createInputController({
 						</div>
                 </section>
                 <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">
-                    <div class="border-b border-zinc-800 px-5 py-4">
+                    <div class="border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!adjustmentControlsReady}>
                         <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase"><span class="hidden xl:inline">Adjustments</span><span class="xl:hidden">INSTRUCTIONS | ABOUT</span></h2>
                         <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners (SOURCE PANEL) and inner guides (WARP PANEL).</p>
                     </div>
                     <div class="p-5">
-<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4" class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
 							<div class="mb-3 flex items-center justify-between">
 								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 									Card Controls MINI MAP
@@ -2289,7 +2290,7 @@ const inputController = createInputController({
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source Panel</h2>
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
-                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300" class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
                                 <label class="curved-assist-toggle">
                                     <input type="checkbox" role="switch" bind:checked={curvedAssist} />
                                     <span class="curved-assist-track" aria-hidden="true"><span></span></span>
@@ -2354,6 +2355,9 @@ const inputController = createInputController({
 							/>
 
 							<div class="absolute inset-0 overflow-hidden rounded-xl" bind:this={containerEl}>
+                                {#if !imageUrl}
+                                    <div class="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Upload an image</div>
+                                {/if}
 								{#if imageUrl}
 									<div
 										class={`absolute inset-0 touch-none transition-opacity duration-300 ${
@@ -2560,7 +2564,7 @@ const inputController = createInputController({
 						</div>
 					</div>
 
-					<div class="block xl:hidden p-4" data-mobile-controls="source">
+					<div class="block xl:hidden p-4" data-mobile-controls="source" class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
@@ -2792,6 +2796,7 @@ const inputController = createInputController({
 				<section
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={selectedTarget?.type === 'guide'}
+                    class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
@@ -3555,6 +3560,10 @@ const inputController = createInputController({
 </div>
 
 <style>
+    .adjustments-disabled {
+        opacity: 0.4;
+        filter: grayscale(1);
+    }
     rect[aria-label="Deselect corners and edges"]:focus:not(:focus-visible),
     rect[aria-label="Clear mini-map selection"]:focus:not(:focus-visible) {
         outline: none;
