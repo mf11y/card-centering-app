@@ -168,3 +168,9 @@
 [data-theme][data-theme] .theme-swatch {
     background: linear-gradient(135deg, var(--color-zinc-950) 0 50%, var(--instrument-accent) 50% 75%, var(--instrument-readout) 75%);
 }
+
+/* Highlight the selected adjustment destination, including between nudges and during drags. */
+[data-theme][data-theme] section[data-adjusting='true'] {
+    border-color: var(--instrument-accent);
+    box-shadow: 0 0 0 1px var(--instrument-accent);
+}

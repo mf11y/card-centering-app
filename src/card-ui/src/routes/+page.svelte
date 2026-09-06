@@ -78,6 +78,7 @@
  */
 let inputVisualTick = $state(0);
 
+
 const inputController = createInputController({
 	onNudge: (direction) => {
 		nudgeSelected(direction);
@@ -2276,6 +2277,7 @@ const inputController = createInputController({
 
 				<section
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+                    data-adjusting={selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow'}
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
@@ -2802,6 +2804,7 @@ const inputController = createInputController({
 
 				<section
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+                    data-adjusting={selectedTarget?.type === 'guide'}
 				>
 					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
