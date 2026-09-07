@@ -1346,13 +1346,23 @@ const inputController = createInputController({
 
 	const miniMapFocusOrder = [
 		{ label: 'Select top left corner', target: { type: 'corner', key: 'topLeft' } },
+		{ label: 'Select top bow control', target: { type: 'bow', key: 'top' } },
 		{ label: 'Select top edge', target: { type: 'guide', key: 'top' } },
 		{ label: 'Select top right corner', target: { type: 'corner', key: 'topRight' } },
+		{ label: 'Select right bow control', target: { type: 'bow', key: 'right' } },
 		{ label: 'Select right edge', target: { type: 'guide', key: 'right' } },
 		{ label: 'Select bottom right corner', target: { type: 'corner', key: 'bottomRight' } },
+		{ label: 'Select bottom bow control', target: { type: 'bow', key: 'bottom' } },
 		{ label: 'Select bottom edge', target: { type: 'guide', key: 'bottom' } },
 		{ label: 'Select bottom left corner', target: { type: 'corner', key: 'bottomLeft' } },
+		{ label: 'Select left bow control', target: { type: 'bow', key: 'left' } },
 		{ label: 'Select left edge', target: { type: 'guide', key: 'left' } }
+	] as const;
+	const miniMapBowNodes = [
+		{ key: 'top', x: 110, y: 30 },
+		{ key: 'right', x: 160, y: 100 },
+		{ key: 'bottom', x: 110, y: 170 },
+		{ key: 'left', x: 60, y: 100 }
 	] as const;
 
 	function handleMiniMapTrapKeydown(event: KeyboardEvent) {
@@ -1817,10 +1827,15 @@ const inputController = createInputController({
 
 
 							<div
-								class="mx-auto flex max-w-[260px] flex-col items-center gap-1 p-2"
+								class="mini-map-with-pad mx-auto flex max-w-[540px] flex-col items-center gap-1 p-2"
 								role="toolbar"
 								aria-label="Card controls mini map"
 								tabindex="-1"
+								onclick={(e) => {
+									if ((e.target as Element).closest('button, [role="button"]')) return;
+									selectTarget(null);
+									inputController.stopPadHold();
+								}}
 								onkeydown={handleMiniMapTrapKeydown}
 							>
 								<!-- labels -->
@@ -1828,7 +1843,8 @@ const inputController = createInputController({
 									x="110"
 									y="235"
 									text-anchor="middle"
-									class="fill-zinc-400 text-[12px] tracking-[0.2em]"
+									class:mini-map-label-active={selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow'}
+									class="mini-map-panel-label fill-zinc-400 text-[12px] tracking-[0.2em]"
 								>
 									CORNERS | SOURCE PANEL
 								</text>
@@ -1836,13 +1852,14 @@ const inputController = createInputController({
 									x="110"
 									y="255"
 									text-anchor="middle"
-									class="fill-zinc-500 text-[12px] tracking-[0.2em]"
+									class:mini-map-label-active={selectedTarget?.type === 'guide'}
+									class="mini-map-panel-label fill-zinc-500 text-[12px] tracking-[0.2em]"
 								>
 									SIDES | WARP PANEL
 								</text>
 								<svg
-									viewBox="0 0 220 210"
-									class="w-full overflow-visible"
+									viewBox="25 5 170 190"
+									class="mt-3 w-full overflow-visible"
 								>
 									<!-- card body -->
 									<rect
@@ -1863,7 +1880,7 @@ const inputController = createInputController({
 								rx="18"
 								fill="transparent"
 								pointer-events="all"
-								class="cursor-pointer"
+								class="cursor-default"
 								role="button"
 								tabindex="0"
 								aria-label="Deselect corners and edges"
@@ -2015,11 +2032,36 @@ const inputController = createInputController({
 										}}
 									/>
 
+									{#if curvedAssist}
+										{#each miniMapBowNodes as bowNode}
+											<circle
+												cx={bowNode.x}
+												cy={bowNode.y}
+												r="5"
+												role="button"
+												tabindex="0"
+												aria-label={`Select ${bowNode.key} bow control`}
+												aria-pressed={selectedTarget?.type === 'bow' && selectedTarget.key === bowNode.key}
+												class={selectedTarget?.type === 'bow' && selectedTarget.key === bowNode.key
+													? 'mini-map-bow-node selected'
+													: 'mini-map-bow-node'}
+												onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+												onclick={(e) => { e.stopPropagation(); selectTarget({ type: 'bow', key: bowNode.key }); }}
+												onkeydown={(e) => {
+													if (e.key === 'Enter' || e.key === ' ') {
+														e.preventDefault(); e.stopPropagation();
+														selectTarget({ type: 'bow', key: bowNode.key });
+													}
+												}}
+											/>
+										{/each}
+									{/if}
+
 									<!-- corner hotspots -->
 									<circle
 										cx="60"
 										cy="30"
-										r="12"
+										r="10"
 										role="button"
 										tabindex="0"
 										aria-label="Select top left corner"
@@ -2039,7 +2081,7 @@ const inputController = createInputController({
 									<circle
 										cx="160"
 										cy="30"
-										r="12"
+										r="10"
 										role="button"
 										tabindex="0"
 										aria-label="Select top right corner"
@@ -2059,7 +2101,7 @@ const inputController = createInputController({
 									<circle
 										cx="60"
 										cy="170"
-										r="12"
+										r="10"
 										role="button"
 										tabindex="0"
 										aria-label="Select bottom left corner"
@@ -2079,7 +2121,7 @@ const inputController = createInputController({
 									<circle
 										cx="160"
 										cy="170"
-										r="12"
+										r="10"
 										role="button"
 										tabindex="0"
 										aria-label="Select bottom right corner"
@@ -2096,7 +2138,7 @@ const inputController = createInputController({
 										}}
 									/>
 								</svg>
-								<div data-tour="arrows" data-guide-arrows class="grid grid-cols-3 gap-2">
+								<div data-tour="arrows" data-guide-arrows class="mini-map-pad grid grid-cols-3 gap-1">
 									<div></div>
 									<button
 										class={getPadButtonClass('up')}
@@ -2179,13 +2221,13 @@ const inputController = createInputController({
 						<div class="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5">
 							<div class="space-y-3 text-sm leading-relaxed text-zinc-400">
 								<div class="hidden xl:block pt-2 text-xs font-medium tracking-wide text-zinc-500 uppercase">How to Use</div>
-                                <button type="button" class="flex w-full items-center justify-between gap-3 text-xs font-medium tracking-wide text-zinc-400 uppercase xl:hidden"
-                                    aria-expanded={howToUseOpen} aria-controls="how-to-use-content" onclick={() => howToUseOpen = !howToUseOpen}>
-                                    How to Use
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style:transform={howToUseOpen ? 'rotate(180deg)' : 'none'}>
-                                        <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                                    </svg>
-                                </button>
+								<button type="button" class="flex w-full items-center justify-start gap-2 text-xs font-medium tracking-wide text-zinc-400 uppercase xl:hidden"
+									aria-expanded={howToUseOpen} aria-controls="how-to-use-content" onclick={() => howToUseOpen = !howToUseOpen}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style:transform={howToUseOpen ? 'rotate(180deg)' : 'none'}>
+										<path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+									</svg>
+									How to Use
+								</button>
                                 <div id="how-to-use-content" class:instructions-open={howToUseOpen} class="how-to-use-content space-y-3">
                                 <ol class="list-decimal space-y-3 pl-5">
 								    <li>
@@ -2572,7 +2614,7 @@ const inputController = createInputController({
                                     fill="transparent" stroke="none" pointer-events="all"
                                     role="button" tabindex="0" aria-label="Clear mini-map selection"
                                     onpointerdown={(e) => { e.preventDefault(); }}
-                                    class="cursor-pointer"
+									class="cursor-default"
                                     onclick={(e) => { e.stopPropagation(); selectTarget(null); inputController.stopPadHold(); }}
                                     onkeydown={(e) => {
                                         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
@@ -2586,6 +2628,26 @@ const inputController = createInputController({
 
 
 
+
+								{#if curvedAssist}
+									{#each miniMapBowNodes as bowNode}
+										<circle
+											cx={bowNode.x} cy={bowNode.y} r="5"
+											role="button" tabindex="0"
+											aria-label={`Select ${bowNode.key} bow control`}
+											aria-pressed={selectedTarget?.type === 'bow' && selectedTarget.key === bowNode.key}
+											class={selectedTarget?.type === 'bow' && selectedTarget.key === bowNode.key ? 'mini-map-bow-node selected' : 'mini-map-bow-node'}
+											onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+											onclick={(e) => { e.stopPropagation(); selectTarget({ type: 'bow', key: bowNode.key }); }}
+											onkeydown={(e) => {
+												if (e.key === 'Enter' || e.key === ' ') {
+													e.preventDefault(); e.stopPropagation();
+													selectTarget({ type: 'bow', key: bowNode.key });
+												}
+											}}
+										/>
+									{/each}
+								{/if}
 
 								<!-- corner hotspots -->
 								<circle
@@ -3276,7 +3338,7 @@ const inputController = createInputController({
                                     fill="transparent" stroke="none" pointer-events="all"
                                     role="button" tabindex="0" aria-label="Clear mini-map selection"
                                     onpointerdown={(e) => { e.preventDefault(); }}
-                                    class="cursor-pointer"
+									class="cursor-default"
                                     onclick={(e) => { e.stopPropagation(); selectTarget(null); inputController.stopPadHold(); }}
                                     onkeydown={(e) => {
                                         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
@@ -3550,6 +3612,40 @@ const inputController = createInputController({
     rect[aria-label="Clear mini-map selection"]:focus:not(:focus-visible) {
         outline: none;
     }
+	.mini-map-bow-node {
+		fill: var(--color-zinc-700);
+		stroke: var(--color-zinc-500);
+		stroke-width: 2;
+		cursor: pointer;
+		transition: fill 120ms ease, stroke 120ms ease, filter 120ms ease;
+	}
+	.mini-map-bow-node:hover { fill: var(--color-zinc-600); stroke: var(--color-zinc-400); }
+	.mini-map-bow-node.selected { fill: #22d3ee; stroke: #67e8f9; filter: drop-shadow(0 0 4px #22d3ee); }
+	.mini-map-bow-node:focus { outline: none; }
+	.mini-map-bow-node:focus-visible { stroke: #fff; stroke-width: 3; }
+	.mini-map-with-pad { position: relative; }
+	.mini-map-pad {
+		position: absolute;
+		left: 50%;
+		top: 56.5%;
+		z-index: 3;
+		width: 122px;
+		transform: translate(-50%, -50%);
+	}
+	.mini-map-pad button {
+		width: 38px;
+		height: 38px;
+		padding: 0;
+		font-size: 16px;
+	}
+	.mini-map-panel-label {
+		transition: color 140ms ease, fill 140ms ease, text-shadow 140ms ease;
+	}
+	.mini-map-panel-label.mini-map-label-active {
+		color: var(--instrument-accent);
+		fill: var(--instrument-accent);
+		text-shadow: 0 0 8px color-mix(in srgb, var(--instrument-accent) 55%, transparent);
+	}
 
     .curved-assist-toggle { position:relative; display:inline-flex; align-items:center; gap:9px; cursor:pointer; user-select:none; min-height:28px; }
     .curved-assist-toggle input { position:absolute; width:1px; height:1px; opacity:0; }
