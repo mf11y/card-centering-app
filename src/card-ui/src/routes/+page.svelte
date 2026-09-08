@@ -285,6 +285,9 @@ const inputController = createInputController({
 
 	function getPadButtonClass(direction: Direction) {
 		inputVisualTick;
+		if (!selectedTarget) {
+			return 'rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-500 transition select-none';
+		}
 
 		return `rounded-xl border px-3 py-2 transition select-none ${
 			inputController.isDirectionActive(direction)
@@ -347,6 +350,41 @@ const inputController = createInputController({
 			return;
 		}
 
+		activateTarget(target);
+	}
+	let pointerActivatedTarget: string | null = null;
+	function targetIdentity(target: Exclude<ControlTarget, null>) {
+		return `${target.type}:${target.key}`;
+	}
+	function isSameTarget(target: Exclude<ControlTarget, null>) {
+		return selectedTarget?.type === target.type && selectedTarget.key === target.key;
+	}
+	function activateTargetFromPointer(target: Exclude<ControlTarget, null>) {
+		pointerActivatedTarget = isSameTarget(target) ? null : targetIdentity(target);
+		activateTarget(target);
+	}
+	function protectInitialCornerSelectionUntilRelease() {
+		suppressClearSelectionUntil = Number.POSITIVE_INFINITY;
+		const releaseProtection = () => {
+			suppressClearSelectionUntil = Date.now() + 300;
+			window.removeEventListener('pointerup', releaseProtection);
+			window.removeEventListener('pointercancel', releaseProtection);
+		};
+		window.addEventListener('pointerup', releaseProtection, { once: true });
+		window.addEventListener('pointercancel', releaseProtection, { once: true });
+	}
+	function toggleTarget(target: Exclude<ControlTarget, null>) {
+		const identity = targetIdentity(target);
+		if (pointerActivatedTarget === identity) {
+			pointerActivatedTarget = null;
+			return;
+		}
+		pointerActivatedTarget = null;
+		if (isSameTarget(target)) {
+			selectTarget(null);
+			inputController.stopPadHold();
+			return;
+		}
 		activateTarget(target);
 	}
 
@@ -481,13 +519,16 @@ const inputController = createInputController({
 	function onPointerMove(e: PointerEvent) {
 		if (!draggingCorner || !imageEl) return;
 
+		const pointerDx = e.clientX - cornerDragStart.pointerX;
+		const pointerDy = e.clientY - cornerDragStart.pointerY;
+		if (!didDragCorner && Math.hypot(pointerDx, pointerDy) < 2) return;
 		didDragCorner = true;
 		const sensitivity = e.shiftKey ? FINE_DRAG_SENSITIVITY : DRAG_SENSITIVITY;
 
 		const displayDx =
-			((e.clientX - cornerDragStart.pointerX) / sourceViewZoom) * sensitivity;
+			(pointerDx / sourceViewZoom) * sensitivity;
 		const displayDy =
-			((e.clientY - cornerDragStart.pointerY) / sourceViewZoom) * sensitivity;
+			(pointerDy / sourceViewZoom) * sensitivity;
 		const naturalDx =
 			(displayDx / Math.max(displayedImageRect.width, 1)) * imageEl.naturalWidth;
 		const naturalDy =
@@ -506,6 +547,7 @@ const inputController = createInputController({
 	}
 	function stopDrag() {
 		const draggedCorner = draggingCorner;
+		const moved = didDragCorner;
 		draggingCorner = null;
 
 		window.removeEventListener('pointermove', onPointerMove);
@@ -513,13 +555,15 @@ const inputController = createInputController({
 
 		if (draggedCorner) {
 			selectTarget({ type: 'corner', key: draggedCorner });
-            // Selection zoom can move the handle away from the pointer, so the
-            // release click may land on the canvas even without a drag.
-			suppressClearSelectionUntil = Date.now() + 250;
+			if (moved) {
+				// The click synthesized after a drag must not toggle the corner off.
+				pointerActivatedTarget = targetIdentity({ type: 'corner', key: draggedCorner });
+				suppressClearSelectionUntil = Date.now() + 250;
+			}
 		}
 
 		didDragCorner = false;
-		scheduleNudgeWarp();
+		if (moved) scheduleNudgeWarp();
 	}
 
 	function onGuidePointerMove(e: PointerEvent) {
@@ -563,7 +607,7 @@ const inputController = createInputController({
 		e.stopPropagation();
 		e.preventDefault();
 
-		selectTarget({ type: 'guide', key: guideKey });
+		activateTargetFromPointer({ type: 'guide', key: guideKey });
 
 		draggingGuide = guideKey;
 		guideDragStart = {
@@ -1698,7 +1742,6 @@ const inputController = createInputController({
 
 				<div class="text-right">
 					<h1 class="text-2xl font-semibold tracking-tight">Card Centering</h1>
-					<p class="text-sm text-zinc-400">Upload, detect, refine, and warp</p>
 				</div>
 			</div>
 		</header>
@@ -1718,7 +1761,7 @@ const inputController = createInputController({
 				<section
 					class="flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
 				>
-					<div class="border-b border-zinc-800 px-5 py-4">
+					<div class="panel-brackets border-b border-zinc-800 px-5 py-4">
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Upload</h2>
 						<p class="text-xs text-zinc-500">
 							Upload a card photo or try a sample to get started
@@ -1790,7 +1833,7 @@ const inputController = createInputController({
 						</div>
                 </section>
                 <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">
-                    <div class="border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!adjustmentControlsReady}>
+                    <div class="panel-brackets border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!adjustmentControlsReady}>
                         <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase"><span class="hidden xl:inline">Adjustments</span><span class="xl:hidden">INSTRUCTIONS | ABOUT</span></h2>
                         <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners (SOURCE PANEL) and inner guides (WARP PANEL).</p>
                     </div>
@@ -1902,7 +1945,7 @@ const inputController = createInputController({
 										y1="30"
 										x2="160"
 										y2="30"
-										stroke={activeGuide === 'top' ? '#60a5fa' : '#52525b'}
+										stroke={activeGuide === 'top' ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -1920,7 +1963,7 @@ const inputController = createInputController({
 										aria-label="Select top edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectTarget({ type: 'guide', key: 'top' });
+											toggleTarget({ type: 'guide', key: 'top' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
@@ -1936,7 +1979,7 @@ const inputController = createInputController({
 										y1="30"
 										x2="160"
 										y2="170"
-										stroke={activeGuide === 'right' ? '#60a5fa' : '#52525b'}
+										stroke={activeGuide === 'right' ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -1954,7 +1997,7 @@ const inputController = createInputController({
 										aria-label="Select right edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectTarget({ type: 'guide', key: 'right' });
+											toggleTarget({ type: 'guide', key: 'right' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
@@ -1970,7 +2013,7 @@ const inputController = createInputController({
 										y1="170"
 										x2="160"
 										y2="170"
-										stroke={activeGuide === 'bottom' ? '#60a5fa' : '#52525b'}
+										stroke={activeGuide === 'bottom' ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -1988,7 +2031,7 @@ const inputController = createInputController({
 										aria-label="Select bottom edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectTarget({ type: 'guide', key: 'bottom' });
+											toggleTarget({ type: 'guide', key: 'bottom' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
@@ -2004,7 +2047,7 @@ const inputController = createInputController({
 										y1="30"
 										x2="60"
 										y2="170"
-										stroke={activeGuide === 'left' ? '#60a5fa' : '#52525b'}
+										stroke={activeGuide === 'left' ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -2022,7 +2065,7 @@ const inputController = createInputController({
 										aria-label="Select left edge"
 										onclick={(e) => {
 											e.stopPropagation();
-											selectTarget({ type: 'guide', key: 'left' });
+											toggleTarget({ type: 'guide', key: 'left' });
 										}}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
@@ -2046,7 +2089,7 @@ const inputController = createInputController({
 													? 'mini-map-bow-node selected'
 													: 'mini-map-bow-node'}
 												onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-												onclick={(e) => { e.stopPropagation(); selectTarget({ type: 'bow', key: bowNode.key }); }}
+												onclick={(e) => { e.stopPropagation(); toggleTarget({ type: 'bow', key: bowNode.key }); }}
 												onkeydown={(e) => {
 													if (e.key === 'Enter' || e.key === ' ') {
 														e.preventDefault(); e.stopPropagation();
@@ -2069,11 +2112,11 @@ const inputController = createInputController({
 											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
-										onclick={() => selectTarget({ type: 'corner', key: 'topLeft' })}
+										onclick={() => toggleTarget({ type: 'corner', key: 'topLeft' })}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectTarget({ type: 'corner', key: 'topLeft' });
+												toggleTarget({ type: 'corner', key: 'topLeft' });
 											}
 										}}
 									/>
@@ -2089,11 +2132,11 @@ const inputController = createInputController({
 											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
-										onclick={() => selectTarget({ type: 'corner', key: 'topRight' })}
+										onclick={() => toggleTarget({ type: 'corner', key: 'topRight' })}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectTarget({ type: 'corner', key: 'topRight' });
+												toggleTarget({ type: 'corner', key: 'topRight' });
 											}
 										}}
 									/>
@@ -2109,11 +2152,11 @@ const inputController = createInputController({
 											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
-										onclick={() => selectTarget({ type: 'corner', key: 'bottomLeft' })}
+										onclick={() => toggleTarget({ type: 'corner', key: 'bottomLeft' })}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectTarget({ type: 'corner', key: 'bottomLeft' });
+												toggleTarget({ type: 'corner', key: 'bottomLeft' });
 											}
 										}}
 									/>
@@ -2129,11 +2172,11 @@ const inputController = createInputController({
 											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
-										onclick={() => selectTarget({ type: 'corner', key: 'bottomRight' })}
+										onclick={() => toggleTarget({ type: 'corner', key: 'bottomRight' })}
 										onkeydown={(e) => {
 											if (e.key === 'Enter' || e.key === ' ') {
 												e.preventDefault();
-												selectTarget({ type: 'corner', key: 'bottomRight' });
+												toggleTarget({ type: 'corner', key: 'bottomRight' });
 											}
 										}}
 									/>
@@ -2310,7 +2353,7 @@ const inputController = createInputController({
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow'}
 				>
-					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+					<div class="panel-brackets flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source Panel</h2>
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
@@ -2486,7 +2529,7 @@ const inputController = createInputController({
 														/>
 													</svg>
 													{#if curvedAssist && warpedImageUrl && !isSegmenting && imageEl}
-                                                        <CurvedEdgeOverlay activeSide={selectedTarget?.type === 'bow' ? selectedTarget.key : null} onselect={(key)=>selectTarget({type:'bow',key})} quad={[corners.topLeft,corners.topRight,corners.bottomRight,corners.bottomLeft]} bind:bows={edgeBows} width={imageEl.naturalWidth} height={imageEl.naturalHeight} zoom={sourceViewZoom} />
+                                                        <CurvedEdgeOverlay activeSide={selectedTarget?.type === 'bow' ? selectedTarget.key : null} onselect={(key)=>toggleTarget({type:'bow',key})} quad={[corners.topLeft,corners.topRight,corners.bottomRight,corners.bottomLeft]} bind:bows={edgeBows} width={imageEl.naturalWidth} height={imageEl.naturalHeight} zoom={sourceViewZoom} />
                                                     {/if}
                                                     {#if warpedImageUrl && !isSegmenting}
 														{#each cornerOverlayItems as corner}
@@ -2504,13 +2547,19 @@ const inputController = createInputController({
 																	: corner.key === 'bottomLeft'
 																		? 'translate(-85%, -15%)'
 																		: 'translate(-15%, -15%)'}
-															onpointerdown={(e) => {
-																e.stopPropagation();
-																e.preventDefault();
+														onpointerdown={(e) => {
+															e.stopPropagation();
+															e.preventDefault();
 
-																selectTarget({ type: 'corner', key: corner.key });
-																e.currentTarget.focus({ preventScroll: true });
-																draggingCorner = corner.key;
+															const target = { type: 'corner', key: corner.key } as const;
+															const wasActive = isSameTarget(target);
+															activateTargetFromPointer(target);
+															e.currentTarget.focus({ preventScroll: true });
+															if (!wasActive) {
+																protectInitialCornerSelectionUntilRelease();
+																return;
+															}
+															draggingCorner = corner.key;
 																cornerDragStart = {
 																	pointerX: e.clientX,
 																	pointerY: e.clientY,
@@ -2524,7 +2573,7 @@ const inputController = createInputController({
 															}}
 														onclick={(e) => {
 															e.stopPropagation();
-															selectTarget({ type: 'corner', key: corner.key });
+															toggleTarget({ type: 'corner', key: corner.key });
 														}}
 														onfocus={() => {
 															activateTarget({ type: 'corner', key: corner.key });
@@ -2638,7 +2687,7 @@ const inputController = createInputController({
 											aria-pressed={selectedTarget?.type === 'bow' && selectedTarget.key === bowNode.key}
 											class={selectedTarget?.type === 'bow' && selectedTarget.key === bowNode.key ? 'mini-map-bow-node selected' : 'mini-map-bow-node'}
 											onpointerdown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-											onclick={(e) => { e.stopPropagation(); selectTarget({ type: 'bow', key: bowNode.key }); }}
+											onclick={(e) => { e.stopPropagation(); toggleTarget({ type: 'bow', key: bowNode.key }); }}
 											onkeydown={(e) => {
 												if (e.key === 'Enter' || e.key === ' ') {
 													e.preventDefault(); e.stopPropagation();
@@ -2661,11 +2710,11 @@ const inputController = createInputController({
 										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
-									onclick={() => selectTarget({ type: 'corner', key: 'topLeft' })}
+									onclick={() => toggleTarget({ type: 'corner', key: 'topLeft' })}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectTarget({ type: 'corner', key: 'topLeft' });
+											toggleTarget({ type: 'corner', key: 'topLeft' });
 										}
 									}}
 								/>
@@ -2681,11 +2730,11 @@ const inputController = createInputController({
 										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
-									onclick={() => selectTarget({ type: 'corner', key: 'topRight' })}
+									onclick={() => toggleTarget({ type: 'corner', key: 'topRight' })}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectTarget({ type: 'corner', key: 'topRight' });
+											toggleTarget({ type: 'corner', key: 'topRight' });
 										}
 									}}
 								/>
@@ -2701,11 +2750,11 @@ const inputController = createInputController({
 										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
-									onclick={() => selectTarget({ type: 'corner', key: 'bottomLeft' })}
+									onclick={() => toggleTarget({ type: 'corner', key: 'bottomLeft' })}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectTarget({ type: 'corner', key: 'bottomLeft' });
+											toggleTarget({ type: 'corner', key: 'bottomLeft' });
 										}
 									}}
 								/>
@@ -2721,11 +2770,11 @@ const inputController = createInputController({
 										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
-									onclick={() => selectTarget({ type: 'corner', key: 'bottomRight' })}
+									onclick={() => toggleTarget({ type: 'corner', key: 'bottomRight' })}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
 											e.preventDefault();
-											selectTarget({ type: 'corner', key: 'bottomRight' });
+											toggleTarget({ type: 'corner', key: 'bottomRight' });
 										}
 									}}
 								/>
@@ -2841,8 +2890,8 @@ const inputController = createInputController({
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={selectedTarget?.type === 'guide'}
                     class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}
-				>
-					<div class="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+        >
+					<div class="panel-brackets flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">
 								Warp Panel
@@ -3138,7 +3187,7 @@ const inputController = createInputController({
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
-														selectTarget({ type: 'guide', key: 'top' });
+														toggleTarget({ type: 'guide', key: 'top' });
 													}}
 													onfocus={() => {
 														activateTarget({ type: 'guide', key: 'top' });
@@ -3161,7 +3210,7 @@ const inputController = createInputController({
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
-														selectTarget({ type: 'guide', key: 'bottom' });
+														toggleTarget({ type: 'guide', key: 'bottom' });
 													}}
 													onfocus={() => {
 														activateTarget({ type: 'guide', key: 'bottom' });
@@ -3184,7 +3233,7 @@ const inputController = createInputController({
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
-														selectTarget({ type: 'guide', key: 'left' });
+														toggleTarget({ type: 'guide', key: 'left' });
 													}}
 													onfocus={() => {
 														activateTarget({ type: 'guide', key: 'left' });
@@ -3207,7 +3256,7 @@ const inputController = createInputController({
 													}}
 													onclick={(e) => {
 														e.stopPropagation();
-														selectTarget({ type: 'guide', key: 'right' });
+														toggleTarget({ type: 'guide', key: 'right' });
 													}}
 													onfocus={() => {
 														activateTarget({ type: 'guide', key: 'right' });
@@ -3359,7 +3408,7 @@ const inputController = createInputController({
 									y1="30"
 									x2="160"
 									y2="30"
-									stroke={activeGuide === 'top' ? '#60a5fa' : '#52525b'}
+									stroke={activeGuide === 'top' ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3377,7 +3426,7 @@ const inputController = createInputController({
 									aria-label="Select top edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'top' });
+										toggleTarget({ type: 'guide', key: 'top' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
@@ -3393,7 +3442,7 @@ const inputController = createInputController({
 									y1="30"
 									x2="160"
 									y2="170"
-									stroke={activeGuide === 'right' ? '#60a5fa' : '#52525b'}
+									stroke={activeGuide === 'right' ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3411,7 +3460,7 @@ const inputController = createInputController({
 									aria-label="Select right edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'right' });
+										toggleTarget({ type: 'guide', key: 'right' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
@@ -3427,7 +3476,7 @@ const inputController = createInputController({
 									y1="170"
 									x2="160"
 									y2="170"
-									stroke={activeGuide === 'bottom' ? '#60a5fa' : '#52525b'}
+									stroke={activeGuide === 'bottom' ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3445,7 +3494,7 @@ const inputController = createInputController({
 									aria-label="Select bottom edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'bottom' });
+										toggleTarget({ type: 'guide', key: 'bottom' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
@@ -3461,7 +3510,7 @@ const inputController = createInputController({
 									y1="30"
 									x2="60"
 									y2="170"
-									stroke={activeGuide === 'left' ? '#60a5fa' : '#52525b'}
+									stroke={activeGuide === 'left' ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3479,7 +3528,7 @@ const inputController = createInputController({
 									aria-label="Select left edge"
 									onclick={(e) => {
 										e.stopPropagation();
-										selectTarget({ type: 'guide', key: 'left' });
+										toggleTarget({ type: 'guide', key: 'left' });
 									}}
 									onkeydown={(e) => {
 										if (e.key === 'Enter' || e.key === ' ') {
@@ -3604,6 +3653,26 @@ const inputController = createInputController({
 </div>
 
 <style>
+    .panel-brackets {
+        position: relative;
+    }
+    .panel-brackets::after {
+        content: '';
+        position: absolute;
+        inset: 6px;
+        z-index: 20;
+        pointer-events: none;
+        background:
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) left top / 12px 1px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) left top / 1px 12px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) right top / 12px 1px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) right top / 1px 12px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) left bottom / 12px 1px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) left bottom / 1px 12px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) right bottom / 12px 1px no-repeat,
+            linear-gradient(var(--instrument-accent), var(--instrument-accent)) right bottom / 1px 12px no-repeat;
+        opacity: 0.7;
+    }
     .adjustments-disabled {
         opacity: 0.4;
         filter: grayscale(1);
