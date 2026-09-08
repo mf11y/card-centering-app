@@ -49,6 +49,15 @@
 	let tutorialActive = $state(false);
     let howToUseOpen = $state(false);
 	import { logUploadedImage } from "../lib/upload-logging";
+    let recentUploadCount = $state<number | null>(null);
+    async function refreshUploadStats(force = false) {
+        try {
+            const response = await fetch(`/api/upload-stats${force ? '?refresh=1' : ''}`, { credentials: 'omit' });
+            if (!response.ok) return;
+            const result = await response.json();
+            if (typeof result.last7Days === 'number' && Number.isInteger(result.last7Days) && result.last7Days >= 0) recentUploadCount = result.last7Days;
+        } catch { /* Usage stats are non-critical. */ }
+    }
     import { lookupRecentUpload, saveRecentDetection, reportCacheInference, type UploadLookup } from '../lib/recent-upload-cache';
     let activeUploadCache: UploadLookup | null = null;
     let uploadGeneration = 0;
@@ -1063,7 +1072,9 @@ const inputController = createInputController({
         const cached = await lookupRecentUpload(file);
         if (generation !== uploadGeneration) return;
         activeUploadCache = cached;
-        if (!cached.hit) logUploadedImage(file);
+        if (!cached.hit) void logUploadedImage(file).then((created) => {
+            if (created) void refreshUploadStats(true);
+        });
 		await new Promise((resolve) => setTimeout(resolve, ACTION_ROW_TRANSITION_MS));
         if (generation !== uploadGeneration) return;
 		loadFile(new File([cached.blob], file.name, { type: cached.blob.type || file.type }));
@@ -1671,6 +1682,7 @@ const inputController = createInputController({
 	 */
 
 	onMount(() => {
+        void refreshUploadStats();
 		try {
 			const savedTheme = localStorage.getItem('card-centering-theme-v2');
 			if (savedTheme === 'retro' || savedTheme === 'charcoal' || savedTheme === 'coral' || savedTheme === 'amethyst') theme = savedTheme;
@@ -3633,13 +3645,16 @@ const inputController = createInputController({
 			</div>
 		</main>
 
-		<footer class="mt-auto border-t border-zinc-800 px-6 py-6 text-left sm:px-10">
+		<footer class="mt-auto flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-zinc-800 px-6 py-6 text-left sm:px-10">
 			<a
 				href="mailto:MoisesFigueroaDE@gmail.com"
 				class="text-sm text-zinc-400 transition-colors hover:text-cyan-400"
 			>
 				MoisesFigueroaDE@gmail.com
 			</a>
+            {#if recentUploadCount !== null}
+                <p class="text-sm text-zinc-500"><span class="font-semibold text-zinc-400">{recentUploadCount}</span> uploads in the last 7 days</p>
+            {/if}
 		</footer>
 	</div>
 <Tutorial bind:active={tutorialActive} context={{

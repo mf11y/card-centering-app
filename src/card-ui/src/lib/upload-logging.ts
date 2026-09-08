@@ -1,11 +1,10 @@
 /** Logging never blocks file loading or inference. No cookies or client identifiers. */
-export function logUploadedImage(file: File): void {
-    if (!file.type.startsWith('image/')) return;
+export async function logUploadedImage(file: File): Promise<boolean> {
+    if (!file.type.startsWith('image/')) return false;
     if (file.size > 4 * 1024 * 1024) {
         console.warn('Image exceeds the 4 MiB capture limit; local processing will continue.');
-        return;
+        return false;
     }
-    void (async () => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
         try {
@@ -18,10 +17,11 @@ export function logUploadedImage(file: File): void {
             if (!response.ok || (await response.json()).ok !== true) {
                 throw new Error('Capture request was unsuccessful');
             }
+            return true;
         } catch {
             console.warn('Image capture unavailable; local card processing continues.');
+            return false;
         } finally {
             clearTimeout(timeout);
         }
-    })();
 }

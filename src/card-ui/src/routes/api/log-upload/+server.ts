@@ -5,6 +5,7 @@ import type { RequestHandler } from './$types';
 import { captureUpload, CaptureError, readUpload } from '$lib/server/upload-storage';
 
 import { uploadFailureDetails } from '$lib/server/upload-diagnostics';
+import { invalidateUploadStatsCache } from '$lib/server/upload-stats';
 
 export const prerender = false;
 
@@ -20,6 +21,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
             production: productionBlobPath,
             localDirectory: env.UPLOAD_LOG_DIR
         });
+        invalidateUploadStatsCache();
         return json(result, { status: 201, headers });
     } catch (error) {
         const status = error instanceof CaptureError ? error.status : 503;

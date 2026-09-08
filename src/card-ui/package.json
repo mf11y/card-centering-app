@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "svelte-kit sync && vite build",
+    "test": "node --experimental-strip-types --test src/lib/*.test.ts src/lib/server/*.test.ts",
     "preview": "vite preview"
   },
   "devDependencies": {
