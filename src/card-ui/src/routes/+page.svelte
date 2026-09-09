@@ -1871,9 +1871,9 @@ const inputController = createInputController({
                     </button>
 				<div class="tutorial-adjustments">
 				<section
-					class="flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="flex w-full flex-col overflow-hidden bg-zinc-900 shadow-sm"
 				>
-					<div class="panel-brackets border-b border-zinc-800 px-5 py-4">
+					<div class="panel-brackets px-5 py-4">
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Upload</h2>
 						<p class="text-xs text-zinc-500">
 							Upload a card photo or try a sample to get started
@@ -1881,7 +1881,7 @@ const inputController = createInputController({
 					</div>
 
 					<div class="p-5">
-						<div class="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4">
+						<div class="rounded-2xl bg-zinc-950/40 p-4">
 							<div class="space-y-4">
 								<!-- row 1: Try Me + Upload before image, Reset after image -->
 								<div>
@@ -2512,10 +2512,10 @@ const inputController = createInputController({
 						<div
 							role="button"
 							tabindex="0"
-							class={`group flex h-full w-full items-center justify-center overflow-hidden border border-zinc-700 bg-zinc-950 transition ${
+							class={`group flex h-full w-full items-center justify-center overflow-hidden border-0 bg-zinc-950 transition ${
 								imageUrl
 									? 'cursor-default opacity-80'
-									: 'cursor-pointer hover:border-zinc-500 hover:bg-zinc-900'
+									: 'cursor-pointer hover:bg-zinc-900'
 							}`}
 							ondrop={!imageUrl ? handleDrop : undefined}
 							ondragover={!imageUrl ? handleDragOver : undefined}
