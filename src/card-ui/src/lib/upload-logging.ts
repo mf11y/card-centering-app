@@ -14,7 +14,8 @@ export async function logUploadedImage(file: File): Promise<boolean> {
                 method: 'POST', body: form, credentials: 'omit',
                 referrerPolicy: 'no-referrer', signal: controller.signal
             });
-            if (!response.ok || (await response.json()).ok !== true) {
+            const result = await response.json();
+            if (!response.ok || result.ok !== true || result.created !== true) {
                 throw new Error('Capture request was unsuccessful');
             }
             return true;

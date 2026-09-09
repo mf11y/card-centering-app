@@ -108,5 +108,5 @@ export async function captureUpload(file: File, settings: Settings, blobs: BlobC
         try { await writeFile(resolve(directory, `${stem}.json`), json, { flag: 'wx' }); }
         catch (error) { await unlink(imagePath).catch(() => {}); throw error; }
     }
-    return { ok: true, stored_filename: filename, object_key: objectKey };
+    return { ok: true, created: true, stored_filename: filename, object_key: objectKey };
 }

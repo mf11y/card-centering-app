@@ -49,13 +49,14 @@
 	let tutorialActive = $state(false);
     let howToUseOpen = $state(false);
 	import { logUploadedImage } from "../lib/upload-logging";
-    let recentUploadCount = $state<number | null>(null);
-    async function refreshUploadStats(force = false) {
+    import { applyConfirmedCreate, applyStatsResponse } from '../lib/upload-stat-client';
+    let uploadStat = $state({ count: null as number | null, confirmedCreates: 0 });
+    async function refreshUploadStats() {
         try {
-            const response = await fetch(`/api/upload-stats${force ? '?refresh=1' : ''}`, { credentials: 'omit' });
+            const response = await fetch('/api/upload-stats', { credentials: 'omit' });
             if (!response.ok) return;
             const result = await response.json();
-            if (typeof result.last7Days === 'number' && Number.isInteger(result.last7Days) && result.last7Days >= 0) recentUploadCount = result.last7Days;
+            uploadStat = applyStatsResponse(uploadStat, result.last7Days);
         } catch { /* Usage stats are non-critical. */ }
     }
     import { lookupRecentUpload, saveRecentDetection, reportCacheInference, type UploadLookup } from '../lib/recent-upload-cache';
@@ -1073,7 +1074,7 @@ const inputController = createInputController({
         if (generation !== uploadGeneration) return;
         activeUploadCache = cached;
         if (!cached.hit) void logUploadedImage(file).then((created) => {
-            if (created) void refreshUploadStats(true);
+            if (created) uploadStat = applyConfirmedCreate(uploadStat);
         });
 		await new Promise((resolve) => setTimeout(resolve, ACTION_ROW_TRANSITION_MS));
         if (generation !== uploadGeneration) return;
@@ -3652,8 +3653,8 @@ const inputController = createInputController({
 			>
 				MoisesFigueroaDE@gmail.com
 			</a>
-            {#if recentUploadCount !== null}
-                <p class="text-sm text-zinc-500"><span class="font-semibold text-zinc-400">{recentUploadCount}</span> uploads in the last 7 days</p>
+            {#if uploadStat.count !== null}
+                <p class="text-sm text-zinc-500"><span class="font-semibold text-zinc-400">{uploadStat.count}</span> uploads in the last 7 days</p>
             {/if}
 		</footer>
 	</div>
