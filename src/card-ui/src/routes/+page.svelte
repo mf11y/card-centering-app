@@ -1873,7 +1873,7 @@ const inputController = createInputController({
 				<section
 					class="flex w-full flex-col overflow-hidden bg-zinc-900 shadow-sm"
 				>
-					<div class="panel-brackets px-5 py-4">
+					<div class="panel-brackets border-b border-zinc-800 px-5 py-4">
 						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Upload</h2>
 						<p class="text-xs text-zinc-500">
 							Upload a card photo or try a sample to get started
