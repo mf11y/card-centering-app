@@ -11,6 +11,13 @@ import { fitQuadFromMask } from './mask-geometry';
 import { refineCardImage, type EdgeRefinement } from './edge-refinement';
 import { nativeMask } from './native-mask';
 import type { Quad } from './geometry';
+import {
+	OUTER_LANCZOS_UPSCALE,
+	mapInferenceQuadToSource,
+	planOuterInferenceResize,
+	resizeRgbaLanczos,
+	type InferenceResize
+} from './inference-upscale';
 
 const MODEL_URL = '/models/card-segmentation.onnx';
 const MODEL_SIZE = 640;
@@ -20,11 +27,19 @@ const CONFIDENCE_THRESHOLD = 0.25;
 
 type PreprocessedImage = {
 	tensor: Ort.Tensor;
-	originalWidth: number;
-	originalHeight: number;
+	resize: InferenceResize;
 	scale: number;
 	padX: number;
 	padY: number;
+	resizeDurationMs: number;
+	preprocessDurationMs: number;
+};
+
+export type OuterInferenceDiagnostic = InferenceResize & {
+	resizeDurationMs: number;
+	preprocessDurationMs: number;
+	inferenceDurationMs: number;
+	totalOuterDetectionMs: number;
 };
 
 let runtimePromise: Promise<typeof import('onnxruntime-web/webgpu')> | null = null;
@@ -97,17 +112,52 @@ export async function preloadInferenceModel() {
  * @param file - Source image selected by the user.
  * @returns Tensor input plus the dimensions and transform needed to restore original coordinates.
  */
-async function preprocessImage(file: File): Promise<PreprocessedImage> {
+async function preprocessImage(file: File, lanczosUpscale = OUTER_LANCZOS_UPSCALE): Promise<PreprocessedImage> {
 	if (!file.type.startsWith('image/')) throw new Error('File must be an image');
 
+	const preprocessStarted = performance.now();
 	const ort = await getRuntime();
 	const bitmap = await createImageBitmap(file);
+	let inferenceCanvas: HTMLCanvasElement | null = null;
 	try {
 		if (!bitmap.width || !bitmap.height) throw new Error('Invalid image dimensions');
+		const resize = planOuterInferenceResize(bitmap.width, bitmap.height, lanczosUpscale);
+		let inferenceSource: CanvasImageSource = bitmap;
+		let resizeDurationMs = 0;
+		if (resize.applied) {
+			const resizeStarted = performance.now();
+			const sourceCanvas = document.createElement('canvas');
+			sourceCanvas.width = bitmap.width;
+			sourceCanvas.height = bitmap.height;
+			const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+			if (!sourceContext) throw new Error('Could not create Lanczos source canvas');
+			sourceContext.drawImage(bitmap, 0, 0);
+			const pixels = sourceContext.getImageData(0, 0, bitmap.width, bitmap.height);
+			const resized = resizeRgbaLanczos(
+				pixels.data,
+				bitmap.width,
+				bitmap.height,
+				resize.inferenceWidth,
+				resize.inferenceHeight
+			);
+			inferenceCanvas = document.createElement('canvas');
+			inferenceCanvas.width = resize.inferenceWidth;
+			inferenceCanvas.height = resize.inferenceHeight;
+			const inferenceContext = inferenceCanvas.getContext('2d');
+			if (!inferenceContext) throw new Error('Could not create Lanczos inference canvas');
+			inferenceContext.putImageData(
+				new ImageData(resized, resize.inferenceWidth, resize.inferenceHeight),
+				0,
+				0
+			);
+			sourceCanvas.width = sourceCanvas.height = 0;
+			inferenceSource = inferenceCanvas;
+			resizeDurationMs = performance.now() - resizeStarted;
+		}
 
-		const scale = Math.min(MODEL_SIZE / bitmap.width, MODEL_SIZE / bitmap.height);
-		const scaledWidth = Math.max(1, Math.round(bitmap.width * scale));
-		const scaledHeight = Math.max(1, Math.round(bitmap.height * scale));
+		const scale = Math.min(MODEL_SIZE / resize.inferenceWidth, MODEL_SIZE / resize.inferenceHeight);
+		const scaledWidth = Math.max(1, Math.round(resize.inferenceWidth * scale));
+		const scaledHeight = Math.max(1, Math.round(resize.inferenceHeight * scale));
 		const padX = Math.floor((MODEL_SIZE - scaledWidth) / 2);
 		const padY = Math.floor((MODEL_SIZE - scaledHeight) / 2);
 		const canvas = document.createElement('canvas');
@@ -121,7 +171,7 @@ async function preprocessImage(file: File): Promise<PreprocessedImage> {
 		context.fillRect(0, 0, MODEL_SIZE, MODEL_SIZE);
 		context.imageSmoothingEnabled = true;
 		context.imageSmoothingQuality = 'high';
-		context.drawImage(bitmap, padX, padY, scaledWidth, scaledHeight);
+		context.drawImage(inferenceSource, padX, padY, scaledWidth, scaledHeight);
 
 		const rgba = context.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE).data;
 		const planeSize = MODEL_SIZE * MODEL_SIZE;
@@ -135,13 +185,15 @@ async function preprocessImage(file: File): Promise<PreprocessedImage> {
 
 		return {
 			tensor: new ort.Tensor('float32', input, [1, 3, MODEL_SIZE, MODEL_SIZE]),
-			originalWidth: bitmap.width,
-			originalHeight: bitmap.height,
+			resize,
 			scale,
 			padX,
-			padY
+			padY,
+			resizeDurationMs,
+			preprocessDurationMs: performance.now() - preprocessStarted
 		};
 	} finally {
+		if (inferenceCanvas) inferenceCanvas.width = inferenceCanvas.height = 0;
 		bitmap.close();
 	}
 }
@@ -230,7 +282,8 @@ function buildMaskDataUrl(
         for(let c=0;c<MASK_CHANNELS;c++)value+=coefficients[c]*values[c*plane+i];
         logits[i]=value;
     }
-    const {originalWidth:width,originalHeight:height,padX,padY,scale}=prepared;
+    const {inferenceWidth:width,inferenceHeight:height}=prepared.resize;
+    const {padX,padY,scale}=prepared;
     const sourceBox={left:(box.left-padX)/scale,top:(box.top-padY)/scale,
         right:(box.right-padX)/scale,bottom:(box.bottom-padY)/scale};
     const mask=nativeMask(logits,pw,ph,width,height,sourceBox);
@@ -252,17 +305,24 @@ function buildMaskDataUrl(
  * @returns The mask, confidence, ordered corners, refinement score, and fit metrics.
  * @throws If the image/model cannot be processed or no card detection meets the confidence threshold.
  */
-export async function inferCorners(file: File) {
-	const [session, prepared] = await Promise.all([getSession(), preprocessImage(file)]);
+export async function inferCorners(file: File, options?: { outerLanczosUpscale?: boolean }) {
+	const totalStarted = performance.now();
+	const [session, prepared] = await Promise.all([
+		getSession(),
+		preprocessImage(file, options?.outerLanczosUpscale ?? OUTER_LANCZOS_UPSCALE)
+	]);
+	const inferenceStarted = performance.now();
 	const outputs = await session.run({ [session.inputNames[0]]: prepared.tensor });
+	const inferenceDurationMs = performance.now() - inferenceStarted;
 	const { detections, prototypes } = getModelOutputs(outputs);
 	const detection = getBestDetection(detections);
 	if (!detection) throw new Error('No card detected');
 
-	const maskUrl = buildMaskDataUrl(prototypes, detection.coefficients, detection.box, prepared);
-	const fitted = await fitQuadFromMask(maskUrl);
-    // fitQuadFromMask now receives a native-resolution mask: no inverse letterbox here.
-    const original = fitted.quad as Quad;
+	const inferenceMaskUrl = buildMaskDataUrl(prototypes, detection.coefficients, detection.box, prepared);
+	const fitted = await fitQuadFromMask(inferenceMaskUrl);
+    // Mask fitting occurs in inference-image coordinates; map once before source-pixel refinement.
+    const inferenceQuad = fitted.quad as Quad;
+    const original = mapInferenceQuadToSource(inferenceQuad, prepared.resize) as Quad;
     let refinement: EdgeRefinement;
     try {
         refinement = await refineCardImage(file, original);
@@ -275,6 +335,34 @@ export async function inferCorners(file: File) {
     }
     const ids = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
     const corners = refinement.refined.map((point,index)=>({id:ids[index],x:point.x,y:point.y}));
+	let maskUrl = inferenceMaskUrl;
+	if (prepared.resize.applied) {
+		const maskBitmap = await createImageBitmap(await (await fetch(inferenceMaskUrl)).blob());
+		try {
+			const sourceMask = document.createElement('canvas');
+			sourceMask.width = prepared.resize.sourceWidth;
+			sourceMask.height = prepared.resize.sourceHeight;
+			const sourceMaskContext = sourceMask.getContext('2d');
+			if (!sourceMaskContext) throw new Error('Could not create source-coordinate mask canvas');
+			sourceMaskContext.imageSmoothingEnabled = false;
+			sourceMaskContext.drawImage(maskBitmap, 0, 0, sourceMask.width, sourceMask.height);
+			maskUrl = sourceMask.toDataURL('image/png');
+			sourceMask.width = sourceMask.height = 0;
+		} finally {
+			maskBitmap.close();
+		}
+	}
+	const diagnostic: OuterInferenceDiagnostic = {
+		...prepared.resize,
+		resizeDurationMs: prepared.resizeDurationMs,
+		preprocessDurationMs: prepared.preprocessDurationMs,
+		inferenceDurationMs,
+		totalOuterDetectionMs: performance.now() - totalStarted
+	};
+	if (import.meta.env.DEV) {
+		console.debug('Outer inference diagnostic', diagnostic);
+		Object.assign(globalThis, { __outerInferenceDiagnostic: diagnostic });
+	}
 
 	return {
 		ok: true,
