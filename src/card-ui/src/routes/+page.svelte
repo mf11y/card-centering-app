@@ -343,9 +343,17 @@ const inputController = createInputController({
 	 * - getOrderedCorners: converts local corner state into the ordered array shape used by warping.
 	 */
 
+	function isDirectionAvailable(direction: Direction) {
+		if (!selectedTarget) return false;
+		if (selectedTarget.type === 'corner') return true;
+
+		const horizontalMovement = direction === 'left' || direction === 'right';
+		const verticalSide = selectedTarget.key === 'left' || selectedTarget.key === 'right';
+		return horizontalMovement === verticalSide;
+	}
 	function getPadButtonClass(direction: Direction) {
 		inputVisualTick;
-		if (!selectedTarget) {
+		if (!isDirectionAvailable(direction)) {
 			return 'rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-500 transition select-none';
 		}
 
@@ -504,7 +512,7 @@ const inputController = createInputController({
 		return { dx: 0, dy: 0 };
 	}
 	function nudgeSelected(direction: 'up' | 'down' | 'left' | 'right') {
-		if (!selectedTarget) return;
+		if (!selectedTarget || !isDirectionAvailable(direction)) return;
 
         if (selectedTarget.type === 'bow') {
             if(!curvedAssist)return;
@@ -2265,6 +2273,7 @@ const inputController = createInputController({
 								<div data-tour="arrows" data-guide-arrows class="mini-map-pad grid grid-cols-3 gap-1">
 									<div></div>
 									<button
+										disabled={!isDirectionAvailable('up')}
 										class={getPadButtonClass('up')}
 										type="button"
 										onpointerdown={(e) => {
@@ -2281,6 +2290,7 @@ const inputController = createInputController({
 									<div></div>
 
 									<button
+										disabled={!isDirectionAvailable('left')}
 										class={getPadButtonClass('left')}
 										type="button"
 										onpointerdown={(e) => {
@@ -2307,6 +2317,7 @@ const inputController = createInputController({
 									</button>
 
 									<button
+										disabled={!isDirectionAvailable('right')}
 										class={getPadButtonClass('right')}
 										type="button"
 										onpointerdown={(e) => {
@@ -2323,6 +2334,7 @@ const inputController = createInputController({
 
 									<div></div>
 									<button
+										disabled={!isDirectionAvailable('down')}
 										class={getPadButtonClass('down')}
 										type="button"
 										onpointerdown={(e) => {
@@ -2893,7 +2905,7 @@ const inputController = createInputController({
 							<div data-tour="arrows" class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
-									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
+									disabled={!isDirectionAvailable('up')}
                                     class={getPadButtonClass('up')}
 									type="button"
 									onpointerdown={(e) => {
@@ -2910,7 +2922,7 @@ const inputController = createInputController({
 								<div></div>
 
 								<button
-									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
+									disabled={!isDirectionAvailable('left')}
                                     class={getPadButtonClass('left')}
 									type="button"
 									onpointerdown={(e) => {
@@ -2937,7 +2949,7 @@ const inputController = createInputController({
 								</button>
 
 								<button
-									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
+									disabled={!isDirectionAvailable('right')}
                                     class={getPadButtonClass('right')}
 									type="button"
 									onpointerdown={(e) => {
@@ -2954,7 +2966,7 @@ const inputController = createInputController({
 
 								<div></div>
 								<button
-									disabled={selectedTarget?.type !== 'corner' && selectedTarget?.type !== 'bow'}
+									disabled={!isDirectionAvailable('down')}
                                     class={getPadButtonClass('down')}
 									type="button"
 									onpointerdown={(e) => {
@@ -3667,7 +3679,8 @@ const inputController = createInputController({
 							<div data-tour="arrows" data-guide-arrows class="grid h-[150px] w-full grid-cols-3 gap-2 self-center">
 								<div></div>
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+									disabled={!isDirectionAvailable('up')}
+									class={getPadButtonClass('up')}
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
@@ -3680,7 +3693,8 @@ const inputController = createInputController({
 								<div></div>
 
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+									disabled={!isDirectionAvailable('left')}
+									class={getPadButtonClass('left')}
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
@@ -3698,7 +3712,8 @@ const inputController = createInputController({
 									}}>•</button
 								>
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+									disabled={!isDirectionAvailable('right')}
+									class={getPadButtonClass('right')}
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
@@ -3711,7 +3726,8 @@ const inputController = createInputController({
 
 								<div></div>
 								<button
-									class="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2"
+									disabled={!isDirectionAvailable('down')}
+									class={getPadButtonClass('down')}
 									onpointerdown={(e) => {
 										e.preventDefault();
 										e.currentTarget.setPointerCapture(e.pointerId);
