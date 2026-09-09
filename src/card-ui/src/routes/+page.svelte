@@ -280,7 +280,57 @@ const inputController = createInputController({
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
 	let actionRowBusy = $state(false);
-	const adjustmentControlsReady = $derived(Boolean(imageUrl) && sourceImageVisible && imageReadyForControls && !isSegmenting && !actionRowBusy);
+    const CONTROLS_SHOWCASE_KEY = 'card-centering-controls-showcase-v1';
+    const CONTROLS_SHOWCASE_STEP_MS = 2016;
+    const CONTROLS_SHOWCASE_LEAD_IN_MS = 400;
+    let controlsShowcasePending = $state(false);
+    let controlsShowcaseRunning = $state(false);
+    let controlsShowcaseTarget = $state<ControlTarget>(null);
+    let controlsShowcaseSeenThisSession = false;
+    let controlsShowcaseGeneration = 0;
+    let controlsShowcaseTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolveControlsShowcaseStep: (() => void) | null = null;
+    const controlsBaseReady = $derived(Boolean(imageUrl) && sourceImageVisible && imageReadyForControls && !isSegmenting && !actionRowBusy);
+	const adjustmentControlsReady = $derived(controlsBaseReady && !controlsShowcasePending && !controlsShowcaseRunning);
+    const displayedMapTarget = $derived(controlsShowcaseTarget ?? selectedTarget);
+
+    function isMapCornerActive(key: keyof typeof corners) {
+        return displayedMapTarget?.type === 'corner' && displayedMapTarget.key === key;
+    }
+    function isMapGuideActive(key: GuideKey) {
+        return displayedMapTarget?.type === 'guide' && displayedMapTarget.key === key;
+    }
+    function isShowcaseGuideActive(key: GuideKey) {
+        return controlsShowcaseRunning && controlsShowcaseTarget?.type === 'guide' && controlsShowcaseTarget.key === key;
+    }
+    function waitForShowcaseStep(delay = CONTROLS_SHOWCASE_STEP_MS) {
+        return new Promise<void>((resolve) => {
+            resolveControlsShowcaseStep = () => { resolveControlsShowcaseStep = null; resolve(); };
+            controlsShowcaseTimer = setTimeout(() => {
+                controlsShowcaseTimer = null;
+                resolveControlsShowcaseStep?.();
+            }, delay);
+        });
+    }
+    function cancelControlsShowcase() {
+        controlsShowcaseGeneration++;
+        if (controlsShowcaseTimer) clearTimeout(controlsShowcaseTimer);
+        controlsShowcaseTimer = null;
+        resolveControlsShowcaseStep?.();
+        controlsShowcasePending = false;
+        controlsShowcaseRunning = false;
+        controlsShowcaseTarget = null;
+    }
+    function prepareControlsShowcase() {
+        if (controlsShowcaseSeenThisSession) return;
+        controlsShowcaseSeenThisSession = true;
+        let alreadyShown = false;
+        if (!import.meta.env.DEV) {
+            try { alreadyShown = localStorage.getItem(CONTROLS_SHOWCASE_KEY) === 'shown'; } catch { /* Storage is optional. */ }
+        }
+        if (!alreadyShown) controlsShowcasePending = true;
+    }
+
 
 // ---- UI helper functions ----
 /**
@@ -1037,6 +1087,7 @@ const inputController = createInputController({
 	}
 	function resetHandler() {
         uploadGeneration++;
+        cancelControlsShowcase();
         activeUploadCache = null;
 		revokeWorkingUrls();
 
@@ -1085,6 +1136,7 @@ const inputController = createInputController({
 
 		try {
 			actionRowBusy = true;
+            prepareControlsShowcase();
 			const response = await fetch('/tryme.webp');
 
 			if (!response.ok) {
@@ -1641,7 +1693,10 @@ const inputController = createInputController({
     let sourceOverview: { zoom: number; pan: { x: number; y: number } } | null = null;
     let focusedSourceTarget = '';
     $effect(() => {
-        const target = selectedTarget;
+        const target = displayedMapTarget;
+        const focusImage = imageEl;
+        const focusWarpReady = Boolean(warpedImageUrl);
+        const focusRect = displayedImageRect;
         untrack(() => {
             if (!target || target.type === 'guide') {
                 if (sourceOverview) {
@@ -1653,7 +1708,7 @@ const inputController = createInputController({
                 return;
             }
             // Focus on selection, including pointer-down; drag deltas use the new zoom.
-            if (!imageEl || !warpedImageUrl || !displayedImageRect.width) return;
+            if (!focusImage || !focusWarpReady || !focusRect.width || !focusImage.naturalWidth || !focusImage.naturalHeight) return;
             const key = `${target.type}:${target.key}`;
             if (key === focusedSourceTarget) return;
             sourceOverview ??= { zoom: sourceViewZoom, pan: { ...sourceViewPan } };
@@ -1666,11 +1721,46 @@ const inputController = createInputController({
             const zoom = Math.max(sourceViewZoom, 2.5);
             sourceViewZoom = zoom;
             sourceViewPan = clampViewPan({
-                x: displayedImageRect.width / 2 - point.x / imageEl.naturalWidth * displayedImageRect.width * zoom,
-                y: displayedImageRect.height / 2 - point.y / imageEl.naturalHeight * displayedImageRect.height * zoom
+                x: focusRect.width / 2 - point.x / focusImage.naturalWidth * focusRect.width * zoom,
+                y: focusRect.height / 2 - point.y / focusImage.naturalHeight * focusRect.height * zoom
             }, zoom, 'source');
             focusedSourceTarget = key;
         });
+    });
+
+    $effect(() => {
+        if (!controlsShowcasePending || !controlsBaseReady || controlsShowcaseRunning) return;
+        controlsShowcasePending = false;
+        controlsShowcaseRunning = true;
+        const generation = ++controlsShowcaseGeneration;
+        const sequence: Exclude<ControlTarget, null>[] = [
+            { type: 'corner', key: 'topLeft' },
+            { type: 'guide', key: 'top' },
+            { type: 'corner', key: 'topRight' },
+            { type: 'guide', key: 'right' },
+            { type: 'corner', key: 'bottomRight' },
+            { type: 'guide', key: 'bottom' },
+            { type: 'corner', key: 'bottomLeft' },
+            { type: 'guide', key: 'left' }
+        ];
+        void (async () => {
+            // Let the initial source framing and panel transition settle before
+            // showing the first corner, so it receives a full visible step.
+            await tick();
+            await waitForShowcaseStep(CONTROLS_SHOWCASE_LEAD_IN_MS);
+            for (const target of sequence) {
+                if (generation !== controlsShowcaseGeneration) return;
+                controlsShowcaseTarget = target;
+                await waitForShowcaseStep();
+            }
+            if (generation !== controlsShowcaseGeneration) return;
+            controlsShowcaseTarget = null;
+            controlsShowcaseRunning = false;
+            controlsShowcaseTimer = null;
+            if (!import.meta.env.DEV) {
+                try { localStorage.setItem(CONTROLS_SHOWCASE_KEY, 'shown'); } catch { /* Storage is optional. */ }
+            }
+        })();
     });
 
 	/**
@@ -1712,6 +1802,7 @@ const inputController = createInputController({
 	});
 
 	onDestroy(() => {
+        cancelControlsShowcase();
 		if (imageUrl) URL.revokeObjectURL(imageUrl);
 
 		if (warpedImageUrl?.startsWith('blob:')) {
@@ -1845,43 +1936,16 @@ const inputController = createInputController({
 
 						</div>
                 </section>
-                <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm">
-                    <div class="panel-brackets border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!adjustmentControlsReady}>
+                <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm" data-adjusting={controlsShowcaseRunning}>
+                    <div class="panel-brackets border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!controlsBaseReady}>
                         <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase"><span class="hidden xl:inline">Adjustments</span><span class="xl:hidden">INSTRUCTIONS | ABOUT</span></h2>
                         <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners (SOURCE PANEL) and inner guides (WARP PANEL).</p>
                     </div>
                     <div class="p-5">
-<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4" class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
-							<div class="mb-3 flex items-center justify-between">
-								<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
-									Card Controls MINI MAP
-								</div>
+<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+							<div class="mb-5 text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
+								Card Controls MINI MAP
 							</div>
-<div class="hidden xl:block space-y-2">
-									<label
-										for="step-size"
-										class="text-xs font-medium tracking-wide text-zinc-400 uppercase"
-									>
-										Step Size
-									</label>
-
-									<select
-										id="step-size" data-tour="step-size"
-										bind:value={stepSize}
-										onchange={(e) => {
-											stepSize = Number((e.currentTarget as HTMLSelectElement).value);
-											(e.currentTarget as HTMLSelectElement).blur();
-										}}
-										class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm transition outline-none focus:border-blue-500"
-									>
-										<option value={0.01}>0.01%</option>
-										<option value={0.025}>0.025%</option>
-										<option value={0.05}>0.05%</option>
-										<option value={0.1}>.1%</option>
-									</select>
-								</div>
-
-
 							<div
 								class="mini-map-with-pad mx-auto flex max-w-[540px] flex-col items-center gap-1 p-2"
 								role="toolbar"
@@ -1899,7 +1963,7 @@ const inputController = createInputController({
 									x="110"
 									y="235"
 									text-anchor="middle"
-									class:mini-map-label-active={selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow'}
+									class:mini-map-label-active={displayedMapTarget?.type === 'corner' || displayedMapTarget?.type === 'bow'}
 									class="mini-map-panel-label fill-zinc-400 text-[12px] tracking-[0.2em]"
 								>
 									CORNERS | SOURCE PANEL
@@ -1908,7 +1972,7 @@ const inputController = createInputController({
 									x="110"
 									y="255"
 									text-anchor="middle"
-									class:mini-map-label-active={selectedTarget?.type === 'guide'}
+									class:mini-map-label-active={displayedMapTarget?.type === 'guide'}
 									class="mini-map-panel-label fill-zinc-500 text-[12px] tracking-[0.2em]"
 								>
 									SIDES | WARP PANEL
@@ -1958,7 +2022,8 @@ const inputController = createInputController({
 										y1="30"
 										x2="160"
 										y2="30"
-										stroke={activeGuide === 'top' ? 'var(--instrument-accent)' : '#52525b'}
+										class:showcase-guide-glow={isShowcaseGuideActive('top')}
+										stroke={isMapGuideActive('top') ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -1992,7 +2057,8 @@ const inputController = createInputController({
 										y1="30"
 										x2="160"
 										y2="170"
-										stroke={activeGuide === 'right' ? 'var(--instrument-accent)' : '#52525b'}
+										class:showcase-guide-glow={isShowcaseGuideActive('right')}
+										stroke={isMapGuideActive('right') ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -2026,7 +2092,8 @@ const inputController = createInputController({
 										y1="170"
 										x2="160"
 										y2="170"
-										stroke={activeGuide === 'bottom' ? 'var(--instrument-accent)' : '#52525b'}
+										class:showcase-guide-glow={isShowcaseGuideActive('bottom')}
+										stroke={isMapGuideActive('bottom') ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -2060,7 +2127,8 @@ const inputController = createInputController({
 										y1="30"
 										x2="60"
 										y2="170"
-										stroke={activeGuide === 'left' ? 'var(--instrument-accent)' : '#52525b'}
+										class:showcase-guide-glow={isShowcaseGuideActive('left')}
+										stroke={isMapGuideActive('left') ? 'var(--instrument-accent)' : '#52525b'}
 										stroke-width="3"
 										stroke-linecap="round"
 									/>
@@ -2121,8 +2189,8 @@ const inputController = createInputController({
 										role="button"
 										tabindex="0"
 										aria-label="Select top left corner"
-										class={activeCorner === 'topLeft'
-											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										class={isMapCornerActive('topLeft')
+											? 'mini-map-corner-active cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => toggleTarget({ type: 'corner', key: 'topLeft' })}
@@ -2141,8 +2209,8 @@ const inputController = createInputController({
 										role="button"
 										tabindex="0"
 										aria-label="Select top right corner"
-										class={activeCorner === 'topRight'
-											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										class={isMapCornerActive('topRight')
+											? 'mini-map-corner-active cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => toggleTarget({ type: 'corner', key: 'topRight' })}
@@ -2161,8 +2229,8 @@ const inputController = createInputController({
 										role="button"
 										tabindex="0"
 										aria-label="Select bottom left corner"
-										class={activeCorner === 'bottomLeft'
-											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										class={isMapCornerActive('bottomLeft')
+											? 'mini-map-corner-active cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => toggleTarget({ type: 'corner', key: 'bottomLeft' })}
@@ -2181,8 +2249,8 @@ const inputController = createInputController({
 										role="button"
 										tabindex="0"
 										aria-label="Select bottom right corner"
-										class={activeCorner === 'bottomRight'
-											? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+										class={isMapCornerActive('bottomRight')
+											? 'mini-map-corner-active cursor-pointer focus:outline-none'
 											: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 										stroke-width="2"
 										onclick={() => toggleTarget({ type: 'corner', key: 'bottomRight' })}
@@ -2270,6 +2338,34 @@ const inputController = createInputController({
 									</button>
 									<div></div>
 								</div>
+							</div>
+
+							<div class="mt-6 hidden xl:block space-y-2">
+								<div class="flex items-center gap-2">
+									<label for="step-size" class="text-xs font-medium tracking-wide text-zinc-400 uppercase">
+										Step Size
+									</label>
+									<details class="group relative">
+										<summary aria-label="About Step Size" class="flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full border border-zinc-600 text-[11px] text-zinc-300 hover:border-cyan-400 hover:text-cyan-300">?</summary>
+										<div class="absolute bottom-full left-0 z-30 mb-2 w-64 rounded-lg border border-zinc-600 bg-zinc-900 p-3 text-xs leading-relaxed text-zinc-300 normal-case shadow-xl">
+											Step Size sets how far the selected corner or side moves with each arrow-pad or keyboard nudge. Choose a smaller percentage for finer adjustments.
+										</div>
+									</details>
+								</div>
+								<select
+									id="step-size" data-tour="step-size"
+									bind:value={stepSize}
+									onchange={(e) => {
+										stepSize = Number((e.currentTarget as HTMLSelectElement).value);
+										(e.currentTarget as HTMLSelectElement).blur();
+									}}
+									class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm transition outline-none focus:border-blue-500"
+								>
+									<option value={0.01}>0.01%</option>
+									<option value={0.025}>0.025%</option>
+									<option value={0.05}>0.05%</option>
+									<option value={0.1}>.1%</option>
+								</select>
 							</div>
 						</div>
 
@@ -2364,13 +2460,15 @@ const inputController = createInputController({
 
 				<section
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
-                    data-adjusting={selectedTarget?.type === 'corner' || selectedTarget?.type === 'bow'}
+                    data-adjusting={displayedMapTarget?.type === 'corner' || displayedMapTarget?.type === 'bow'}
+                    class:adjustments-disabled={controlsShowcaseRunning && displayedMapTarget?.type === 'guide'}
+                    inert={controlsShowcaseRunning}
 				>
 					<div class="panel-brackets flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source Panel</h2>
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
-                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300" class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
                                 <label class="curved-assist-toggle">
                                     <input type="checkbox" role="switch" bind:checked={curvedAssist} />
                                     <span class="curved-assist-track" aria-hidden="true"><span></span></span>
@@ -2549,7 +2647,7 @@ const inputController = createInputController({
 															<button
 															type="button"
 															aria-label={`Toggle ${corner.key} arrow control`}
-															aria-pressed={activeCorner === corner.key}
+															aria-pressed={isMapCornerActive(corner.key)}
 														class="absolute z-10 flex h-10 w-10 items-center justify-center focus:outline-none"
 															style:left={`${(corners[corner.key].x / Math.max(imageEl?.naturalWidth || 1, 1)) * 100}%`}
 															style:top={`${(corners[corner.key].y / Math.max(imageEl?.naturalHeight || 1, 1)) * 100}%`}
@@ -2596,7 +2694,7 @@ const inputController = createInputController({
 														>
 															<div
 																class={`h-7 w-7 transition ${
-																	activeCorner === corner.key
+																	isMapCornerActive(corner.key)
 																		? 'arrow-breathe text-red-400'
 																		: 'text-cyan-400 hover:text-green-300'
 																}`}
@@ -2650,7 +2748,7 @@ const inputController = createInputController({
 						</div>
 					</div>
 
-					<div class="block xl:hidden p-4" data-mobile-controls="source" class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+					<div class="block xl:hidden p-4" data-mobile-controls="source" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
@@ -2719,8 +2817,8 @@ const inputController = createInputController({
 									role="button"
 									tabindex="0"
 									aria-label="Select top left corner"
-									class={activeCorner === 'topLeft'
-										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+									class={isMapCornerActive('topLeft')
+										? 'mini-map-corner-active cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => toggleTarget({ type: 'corner', key: 'topLeft' })}
@@ -2739,8 +2837,8 @@ const inputController = createInputController({
 									role="button"
 									tabindex="0"
 									aria-label="Select top right corner"
-									class={activeCorner === 'topRight'
-										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+									class={isMapCornerActive('topRight')
+										? 'mini-map-corner-active cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => toggleTarget({ type: 'corner', key: 'topRight' })}
@@ -2759,8 +2857,8 @@ const inputController = createInputController({
 									role="button"
 									tabindex="0"
 									aria-label="Select bottom left corner"
-									class={activeCorner === 'bottomLeft'
-										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+									class={isMapCornerActive('bottomLeft')
+										? 'mini-map-corner-active cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => toggleTarget({ type: 'corner', key: 'bottomLeft' })}
@@ -2779,8 +2877,8 @@ const inputController = createInputController({
 									role="button"
 									tabindex="0"
 									aria-label="Select bottom right corner"
-									class={activeCorner === 'bottomRight'
-										? 'fill-cyan-400 stroke-cyan-300 cursor-pointer focus:outline-none'
+									class={isMapCornerActive('bottomRight')
+										? 'mini-map-corner-active cursor-pointer focus:outline-none'
 										: 'fill-zinc-700 stroke-zinc-500 cursor-pointer focus:outline-none'}
 									stroke-width="2"
 									onclick={() => toggleTarget({ type: 'corner', key: 'bottomRight' })}
@@ -2901,8 +2999,8 @@ const inputController = createInputController({
 
 				<section
 					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
-                    data-adjusting={selectedTarget?.type === 'guide'}
-                    class:adjustments-disabled={!adjustmentControlsReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}
+                    data-adjusting={displayedMapTarget?.type === 'guide'}
+                    class:adjustments-disabled={!controlsBaseReady || (controlsShowcaseRunning && displayedMapTarget?.type !== 'guide')} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}
         >
 					<div class="panel-brackets flex items-center justify-between border-b border-zinc-800 px-5 py-4">
 						<div>
@@ -3142,8 +3240,9 @@ const inputController = createInputController({
 													y1={topPx}
 													x2={warpDisplayedImageRect.width}
 													y2={topPx}
-													stroke={activeGuide === 'top' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / warpViewZoom}
+													class:showcase-warp-guide-glow={isShowcaseGuideActive('top')}
+													stroke={isMapGuideActive('top') ? 'var(--instrument-accent)' : '#22d3ee'}
+													stroke-width={(isShowcaseGuideActive('top') ? 10 : 2) / warpViewZoom}
 													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
@@ -3153,8 +3252,9 @@ const inputController = createInputController({
 													y1={warpDisplayedImageRect.height - bottomPx}
 													x2={warpDisplayedImageRect.width}
 													y2={warpDisplayedImageRect.height - bottomPx}
-													stroke={activeGuide === 'bottom' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / warpViewZoom}
+													class:showcase-warp-guide-glow={isShowcaseGuideActive('bottom')}
+													stroke={isMapGuideActive('bottom') ? 'var(--instrument-accent)' : '#22d3ee'}
+													stroke-width={(isShowcaseGuideActive('bottom') ? 10 : 2) / warpViewZoom}
 													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
@@ -3164,8 +3264,9 @@ const inputController = createInputController({
 													y1="0"
 													x2={leftPx}
 													y2={warpDisplayedImageRect.height}
-													stroke={activeGuide === 'left' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / warpViewZoom}
+													class:showcase-warp-guide-glow={isShowcaseGuideActive('left')}
+													stroke={isMapGuideActive('left') ? 'var(--instrument-accent)' : '#22d3ee'}
+													stroke-width={(isShowcaseGuideActive('left') ? 10 : 2) / warpViewZoom}
 													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
@@ -3175,8 +3276,9 @@ const inputController = createInputController({
 													y1="0"
 													x2={warpDisplayedImageRect.width - rightPx}
 													y2={warpDisplayedImageRect.height}
-													stroke={activeGuide === 'right' ? '#f87171' : '#22d3ee'}
-													stroke-width={2 / warpViewZoom}
+													class:showcase-warp-guide-glow={isShowcaseGuideActive('right')}
+													stroke={isMapGuideActive('right') ? 'var(--instrument-accent)' : '#22d3ee'}
+													stroke-width={(isShowcaseGuideActive('right') ? 10 : 2) / warpViewZoom}
 													stroke-dasharray="none"
 													stroke-linecap="round"
 												/>
@@ -3188,7 +3290,7 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust top guide"
-													aria-pressed={activeGuide === 'top'}
+													aria-pressed={isMapGuideActive('top')}
 													data-warp-guide="true"
 													data-guide-key="top"
 													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer focus:outline-none"
@@ -3211,7 +3313,7 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust bottom guide"
-													aria-pressed={activeGuide === 'bottom'}
+													aria-pressed={isMapGuideActive('bottom')}
 													data-warp-guide="true"
 													data-guide-key="bottom"
 													class="absolute left-0 right-0 h-10 -translate-y-1/2 cursor-pointer focus:outline-none"
@@ -3234,7 +3336,7 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust left guide"
-													aria-pressed={activeGuide === 'left'}
+													aria-pressed={isMapGuideActive('left')}
 													data-warp-guide="true"
 													data-guide-key="left"
 													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer focus:outline-none"
@@ -3257,7 +3359,7 @@ const inputController = createInputController({
 												<button
 													type="button"
 													aria-label="Adjust right guide"
-													aria-pressed={activeGuide === 'right'}
+													aria-pressed={isMapGuideActive('right')}
 													data-warp-guide="true"
 													data-guide-key="right"
 													class="absolute top-0 bottom-0 w-10 -translate-x-1/2 cursor-pointer focus:outline-none"
@@ -3276,7 +3378,7 @@ const inputController = createInputController({
 													}}
 												></button>
 
-												{#if activeGuide === 'top'}
+											{#if isMapGuideActive('top')}
 													<div
 														class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 translate-y-[40%] items-center justify-center"
 														style={`top: ${topPx}px;`}
@@ -3284,7 +3386,7 @@ const inputController = createInputController({
 														<div class="arrow-breathe">
 															<svg
 																viewBox="0 0 80 80"
-																class="h-16 w-16 text-red-400"
+															class={isShowcaseGuideActive('top') ? 'h-48 w-48 text-red-400' : 'h-16 w-16 text-red-400'}
 																fill="none"
 																stroke="currentColor"
 																stroke-width="4.5"
@@ -3298,7 +3400,7 @@ const inputController = createInputController({
 													</div>
 												{/if}
 
-												{#if activeGuide === 'bottom'}
+											{#if isMapGuideActive('bottom')}
 													<div
 														class="pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-[140%] items-center justify-center"
 														style={`top: ${warpDisplayedImageRect.height - bottomPx}px;`}
@@ -3306,7 +3408,7 @@ const inputController = createInputController({
 														<div class="arrow-breathe">
 															<svg
 																viewBox="0 0 80 80"
-																class="h-16 w-16 rotate-180 text-red-400"
+															class={isShowcaseGuideActive('bottom') ? 'h-48 w-48 rotate-180 text-red-400' : 'h-16 w-16 rotate-180 text-red-400'}
 																fill="none"
 																stroke="currentColor"
 																stroke-width="4.5"
@@ -3320,7 +3422,7 @@ const inputController = createInputController({
 													</div>
 												{/if}
 
-												{#if activeGuide === 'left'}
+											{#if isMapGuideActive('left')}
 													<div
 														class="pointer-events-none absolute top-1/2 flex translate-x-[40%] -translate-y-1/2 items-center justify-center"
 														style={`left: ${leftPx}px;`}
@@ -3328,7 +3430,7 @@ const inputController = createInputController({
 														<div class="arrow-breathe">
 															<svg
 																viewBox="0 0 80 80"
-																class="h-16 w-16 -rotate-90 text-red-400"
+															class={isShowcaseGuideActive('left') ? 'h-48 w-48 -rotate-90 text-red-400' : 'h-16 w-16 -rotate-90 text-red-400'}
 																fill="none"
 																stroke="currentColor"
 																stroke-width="4.5"
@@ -3342,7 +3444,7 @@ const inputController = createInputController({
 													</div>
 												{/if}
 
-												{#if activeGuide === 'right'}
+											{#if isMapGuideActive('right')}
 													<div
 														class="pointer-events-none absolute top-1/2 flex -translate-x-[140%] -translate-y-1/2 items-center justify-center"
 														style={`left: ${warpDisplayedImageRect.width - rightPx}px;`}
@@ -3350,7 +3452,7 @@ const inputController = createInputController({
 														<div class="arrow-breathe">
 															<svg
 																viewBox="0 0 80 80"
-																class="h-16 w-16 rotate-90 text-red-400"
+															class={isShowcaseGuideActive('right') ? 'h-48 w-48 rotate-90 text-red-400' : 'h-16 w-16 rotate-90 text-red-400'}
 																fill="none"
 																stroke="currentColor"
 																stroke-width="4.5"
@@ -3421,7 +3523,8 @@ const inputController = createInputController({
 									y1="30"
 									x2="160"
 									y2="30"
-									stroke={activeGuide === 'top' ? 'var(--instrument-accent)' : '#52525b'}
+									class:showcase-guide-glow={isShowcaseGuideActive('top')}
+										stroke={isMapGuideActive('top') ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3455,7 +3558,8 @@ const inputController = createInputController({
 									y1="30"
 									x2="160"
 									y2="170"
-									stroke={activeGuide === 'right' ? 'var(--instrument-accent)' : '#52525b'}
+									class:showcase-guide-glow={isShowcaseGuideActive('right')}
+										stroke={isMapGuideActive('right') ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3489,7 +3593,8 @@ const inputController = createInputController({
 									y1="170"
 									x2="160"
 									y2="170"
-									stroke={activeGuide === 'bottom' ? 'var(--instrument-accent)' : '#52525b'}
+									class:showcase-guide-glow={isShowcaseGuideActive('bottom')}
+										stroke={isMapGuideActive('bottom') ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3523,7 +3628,8 @@ const inputController = createInputController({
 									y1="30"
 									x2="60"
 									y2="170"
-									stroke={activeGuide === 'left' ? 'var(--instrument-accent)' : '#52525b'}
+									class:showcase-guide-glow={isShowcaseGuideActive('left')}
+										stroke={isMapGuideActive('left') ? 'var(--instrument-accent)' : '#52525b'}
 									stroke-width="3"
 									stroke-linecap="round"
 								/>
@@ -3696,6 +3802,17 @@ const inputController = createInputController({
     rect[aria-label="Deselect corners and edges"]:focus:not(:focus-visible),
     rect[aria-label="Clear mini-map selection"]:focus:not(:focus-visible) {
         outline: none;
+    }
+    :global(.mini-map-corner-active) {
+        fill: var(--instrument-accent);
+        stroke: var(--instrument-accent-hover);
+        filter: drop-shadow(0 0 5px color-mix(in srgb, var(--instrument-accent) 75%, transparent));
+    }
+    .showcase-guide-glow {
+        filter: drop-shadow(0 0 5px var(--instrument-accent));
+    }
+    .showcase-warp-guide-glow {
+        filter: drop-shadow(0 0 5px var(--instrument-accent));
     }
 	.mini-map-bow-node {
 		fill: var(--color-zinc-700);
