@@ -264,6 +264,8 @@ const inputController = createInputController({
 	 * - nudgeWarpTimeout: debounce timer for rerunning the warp preview after movement.
 	 * - hasAdjustedVerticalGuides: whether top/bottom guides have been manually touched.
 	 * - hasAdjustedHorizontalGuides: whether left/right guides have been manually touched.
+	 * - hasMovedVerticalGuides / hasMovedHorizontalGuides: whether a guess or user input moved
+	 *   that guide pair, allowing a near-50/50 result to receive the purple highlight.
 	 * - pendingDetection: whether segmentation should run once the source image fully loads.
 	 * - imageReadyForControls: whether the source image/layout is ready for interactive controls.
 	 * - resizeObserver: observes source/warp containers so display rects stay in sync with layout.
@@ -276,6 +278,8 @@ const inputController = createInputController({
 	let nudgeWarpTimeout: ReturnType<typeof setTimeout> | null = null;
 	let hasAdjustedVerticalGuides = $state(false);
 	let hasAdjustedHorizontalGuides = $state(false);
+	let hasMovedVerticalGuides = $state(false);
+	let hasMovedHorizontalGuides = $state(false);
 	let pendingDetection = $state(false);
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
@@ -372,10 +376,12 @@ const inputController = createInputController({
 	function markGuideAdjusted(guideKey: GuideKey) {
 		if (guideKey === 'top' || guideKey === 'bottom') {
 			hasAdjustedVerticalGuides = true;
+			hasMovedVerticalGuides = true;
 		}
 
 		if (guideKey === 'left' || guideKey === 'right') {
 			hasAdjustedHorizontalGuides = true;
+			hasMovedHorizontalGuides = true;
 		}
 	}
 	function getOrderedCorners() {
@@ -1087,6 +1093,8 @@ const inputController = createInputController({
 
 		hasAdjustedVerticalGuides = false;
 		hasAdjustedHorizontalGuides = false;
+		hasMovedVerticalGuides = false;
+		hasMovedHorizontalGuides = false;
 	}
 
 	function clearUploadInput() {
@@ -1252,10 +1260,12 @@ const inputController = createInputController({
                 void guessInnerBorders(nextUrl, { ...guideInsetsPct }).then((guess) => {
                     if (generation !== guideGuessGeneration || warpedImageUrl !== nextUrl) return;
                     if (!hasAdjustedVerticalGuides) {
+						hasMovedVerticalGuides ||= guess.top !== guideInsetsPct.top || guess.bottom !== guideInsetsPct.bottom;
                         guideInsetsPct.top = guess.top;
                         guideInsetsPct.bottom = guess.bottom;
                     }
                     if (!hasAdjustedHorizontalGuides) {
+						hasMovedHorizontalGuides ||= guess.left !== guideInsetsPct.left || guess.right !== guideInsetsPct.right;
                         guideInsetsPct.left = guess.left;
                         guideInsetsPct.right = guess.right;
                     }
@@ -1590,9 +1600,9 @@ const inputController = createInputController({
 	 * - centeringStats: computed percentage split for top/bottom and left/right borders.
 	 * - PERFECT_TOLERANCE: maximum percentage-point difference from 50 allowed for a perfect result.
 	 * - verticalIsPerfect: true when vertical guide percentages are essentially 50/50
-	 *   and the user has already adjusted vertical guides.
+	 *   and either the automatic guess or the user has moved the vertical guides.
 	 * - horizontalIsPerfect: true when horizontal guide percentages are essentially 50/50
-	 *   and the user has already adjusted horizontal guides.
+	 *   and either the automatic guess or the user has moved the horizontal guides.
 	 */
 
 	const centeringStats = $derived(
@@ -1607,13 +1617,13 @@ const inputController = createInputController({
 	const PERFECT_TOLERANCE = 0.4;
 
 	const verticalIsPerfect = $derived(
-		hasAdjustedVerticalGuides &&
+		hasMovedVerticalGuides &&
 			Math.abs(centeringStats.topPct - 50) <= PERFECT_TOLERANCE &&
 			Math.abs(centeringStats.bottomPct - 50) <= PERFECT_TOLERANCE
 	);
 
 	const horizontalIsPerfect = $derived(
-		hasAdjustedHorizontalGuides &&
+		hasMovedHorizontalGuides &&
 			Math.abs(centeringStats.leftPct - 50) <= PERFECT_TOLERANCE &&
 			Math.abs(centeringStats.rightPct - 50) <= PERFECT_TOLERANCE
 	);
