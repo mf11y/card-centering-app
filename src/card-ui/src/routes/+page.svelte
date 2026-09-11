@@ -316,6 +316,15 @@ const inputController = createInputController({
             }, delay);
         });
     }
+    function scrollMobileShowcaseTargetIntoView(target: Exclude<ControlTarget, null>) {
+        if (!window.matchMedia('(max-width: 1279px)').matches) return;
+        const panel = target.type === 'guide' ? warpContainerEl : sourceFocusTrapEl;
+        panel?.scrollIntoView({
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            block: 'center',
+            inline: 'nearest'
+        });
+    }
     function cancelControlsShowcase() {
         controlsShowcaseGeneration++;
         if (controlsShowcaseTimer) clearTimeout(controlsShowcaseTimer);
@@ -1769,6 +1778,8 @@ const inputController = createInputController({
             for (const target of sequence) {
                 if (generation !== controlsShowcaseGeneration) return;
                 controlsShowcaseTarget = target;
+                await tick();
+                scrollMobileShowcaseTargetIntoView(target);
                 await waitForShowcaseStep();
             }
             if (generation !== controlsShowcaseGeneration) return;
