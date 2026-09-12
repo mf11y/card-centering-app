@@ -2412,12 +2412,12 @@ const inputController = createInputController({
 									<label for="step-size" class="text-xs font-medium tracking-wide text-zinc-400 uppercase">
 										Step Size
 									</label>
-									<details class="group relative">
-										<summary aria-label="About Step Size" class="flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full border border-zinc-600 text-[11px] text-zinc-300 hover:border-cyan-400 hover:text-cyan-300">?</summary>
-										<div class="absolute bottom-full left-0 z-30 mb-2 w-64 rounded-lg border border-zinc-600 bg-zinc-900 p-3 text-xs leading-relaxed text-zinc-300 normal-case shadow-xl">
+									<div class="group relative flex h-5 w-5 shrink-0 items-center justify-center">
+										<span tabindex="0" role="button" aria-label="About Step Size" aria-describedby="step-size-help" class="flex h-5 w-5 items-center justify-center rounded-full border border-zinc-600 text-[11px] leading-none text-zinc-300 hover:border-cyan-400 hover:text-cyan-300 focus:border-cyan-400 focus:text-cyan-300 focus:outline-none">?</span>
+										<div id="step-size-help" role="tooltip" class="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-2 w-64 rounded-lg border border-zinc-600 bg-zinc-900 p-3 text-xs leading-relaxed text-zinc-300 normal-case opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
 											Step Size sets how far the selected corner or side moves with each arrow-pad or keyboard nudge. Choose a smaller percentage for finer adjustments.
 										</div>
-									</details>
+									</div>
 								</div>
 								<select
 									id="step-size" data-tour="step-size"
