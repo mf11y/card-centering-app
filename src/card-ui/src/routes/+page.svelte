@@ -436,6 +436,7 @@ const inputController = createInputController({
 		activateTarget(target);
 	}
 	let pointerActivatedTarget: string | null = null;
+	let draggedBowAwaitingClick: Side | null = null;
 	function targetIdentity(target: Exclude<ControlTarget, null>) {
 		return `${target.type}:${target.key}`;
 	}
@@ -469,6 +470,32 @@ const inputController = createInputController({
 			return;
 		}
 		activateTarget(target);
+	}
+	function handleBowSelect(key: Side) {
+		if (draggedBowAwaitingClick === key) {
+			draggedBowAwaitingClick = null;
+			activateTarget({ type: 'bow', key });
+			return;
+		}
+		toggleTarget({ type: 'bow', key });
+	}
+	function protectBowSelectionAfterDrag(key: Side) {
+		draggedBowAwaitingClick = key;
+		suppressClearSelectionUntil = Number.POSITIVE_INFINITY;
+		const releaseProtection = () => {
+			suppressClearSelectionUntil = Date.now() + 300;
+			setTimeout(() => {
+				if (draggedBowAwaitingClick === key) draggedBowAwaitingClick = null;
+			}, 350);
+			window.removeEventListener('pointerup', releaseProtection);
+			window.removeEventListener('pointercancel', releaseProtection);
+		};
+		window.addEventListener('pointerup', releaseProtection, { once: true });
+		window.addEventListener('pointercancel', releaseProtection, { once: true });
+	}
+	function activateBowFromPointer(key: Side) {
+		activateTarget({ type: 'bow', key });
+		protectInitialCornerSelectionUntilRelease();
 	}
 
 	function cycleWarpEnhanceMode() {
@@ -504,8 +531,12 @@ const inputController = createInputController({
 		activeGuide = target.type === 'guide' ? target.key : null;
 		activeCorner = null;
 	}
-	function clearActiveSelection() {
+	function clearActiveSelection(event?: Event) {
 		if (Date.now() < suppressClearSelectionUntil) return;
+		if (event?.currentTarget instanceof HTMLElement) {
+			const curvedOverlay = event.currentTarget.querySelector<HTMLElement>('.plane[data-bow-drag-until]');
+			if (Number(curvedOverlay?.dataset.bowDragUntil ?? 0) > Date.now()) return;
+		}
 		selectTarget(null);
 	}
 	function handleGlobalKeydown(event: KeyboardEvent) {
@@ -1572,6 +1603,9 @@ const inputController = createInputController({
 							-webkit-text-fill-color: #e879f9 !important;
 							filter: none !important;
 							text-shadow: 0 0 3px rgba(217, 70, 239, 0.35) !important;
+						}
+						.warp-guide-glass {
+							display: none !important;
 						}
 					`;
 					clonedDocument.head.appendChild(style);
@@ -2673,7 +2707,7 @@ const inputController = createInputController({
 														/>
 													</svg>
 													{#if curvedAssist && warpedImageUrl && !isSegmenting && imageEl}
-                                                        <CurvedEdgeOverlay activeSide={selectedTarget?.type === 'bow' ? selectedTarget.key : null} onselect={(key)=>toggleTarget({type:'bow',key})} quad={[corners.topLeft,corners.topRight,corners.bottomRight,corners.bottomLeft]} bind:bows={edgeBows} width={imageEl.naturalWidth} height={imageEl.naturalHeight} zoom={sourceViewZoom} />
+                                                        <CurvedEdgeOverlay activeSide={selectedTarget?.type === 'bow' ? selectedTarget.key : null} onactivate={(key)=>activateTarget({type:'bow',key})} onpointeractivate={activateBowFromPointer} onbowdrag={protectBowSelectionAfterDrag} onselect={handleBowSelect} quad={[corners.topLeft,corners.topRight,corners.bottomRight,corners.bottomLeft]} bind:bows={edgeBows} width={imageEl.naturalWidth} height={imageEl.naturalHeight} zoom={sourceViewZoom} />
                                                     {/if}
                                                     {#if warpedImageUrl && !isSegmenting}
 														{#each cornerOverlayItems as corner}
@@ -3262,13 +3296,18 @@ const inputController = createInputController({
 												onload={() => updateWarpDisplayedImageRect()}
 												draggable="false"
 											/>
+											<div
+												class="warp-guide-glass pointer-events-none absolute"
+												data-html2canvas-ignore="true"
+												style={`left:${leftPx}px; top:${topPx}px; width:${Math.max(0, warpDisplayedImageRect.width - leftPx - rightPx)}px; height:${Math.max(0, warpDisplayedImageRect.height - topPx - bottomPx)}px;`}
+											></div>
 
 											<svg
 												class="pointer-events-none absolute inset-0 h-full w-full"
-												viewBox={`0 0 ${Math.max(warpDisplayedImageRect.width, 1)} ${Math.max(warpDisplayedImageRect.height, 1)}`}
-												preserveAspectRatio="none"
-											>
-												<line
+								viewBox={`0 0 ${Math.max(warpDisplayedImageRect.width, 1)} ${Math.max(warpDisplayedImageRect.height, 1)}`}
+								preserveAspectRatio="none"
+							>
+								<line
 													x1="0"
 													y1={topPx}
 													x2={warpDisplayedImageRect.width}
@@ -4019,6 +4058,13 @@ const inputController = createInputController({
 		animation: arrow-breathe 1.4s ease-in-out infinite !important;
 		transform-origin: center;
 		will-change: transform, filter, opacity;
+	}
+
+	.warp-guide-glass {
+		background: rgb(255 255 255 / 8%);
+		backdrop-filter: blur(1px) saturate(0.92) brightness(0.96);
+		-webkit-backdrop-filter: blur(1px) saturate(0.92) brightness(0.96);
+		box-shadow: inset 0 0 0 1px rgb(255 255 255 / 5%);
 	}
 
 	@keyframes -global-arrow-breathe {

@@ -1,10 +1,12 @@
 <script lang="ts">
     import { createCurvedMapping } from './curved-mapping';
     import { deriveCurvedEdges, clampBow, type BowQuad, type EdgeBow, type Side } from './curved-edge';
-    let { quad, bows=$bindable(), width, height, zoom=1, activeSide=null, onselect }: {activeSide?:Side|null; onselect:(side:Side)=>void; quad:BowQuad; bows:EdgeBow; width:number; height:number; zoom?:number}=$props();
+    let { quad, bows=$bindable(), width, height, zoom=1, activeSide=null, onactivate, onpointeractivate, onbowdrag, onselect }: {activeSide?:Side|null; onactivate:(side:Side)=>void; onpointeractivate:(side:Side)=>void; onbowdrag:(side:Side)=>void; onselect:(side:Side)=>void; quad:BowQuad; bows:EdgeBow; width:number; height:number; zoom?:number}=$props();
     let plane = $state<HTMLDivElement>();
     let dragging:Side|null=null;
     let dragStart={x:0,y:0,bow:0};
+    let didDrag=false;
+    let suppressClick:Side|null=null;
     let showGrid=$state(false);
     const mapping=$derived.by(()=>{if(!import.meta.env.DEV)return null;try{return createCurvedMapping(quad,bows,width,height);}catch{return null;}});
     const geometry=$derived(deriveCurvedEdges(quad,bows));
@@ -13,9 +15,63 @@
         if(dragging!==key) return;
         e.preventDefault(); e.stopPropagation();
         if(!plane) return;
+        if(!didDrag && Math.hypot(e.clientX-dragStart.x,e.clientY-dragStart.y)<2)return;
+        if(!didDrag) onbowdrag(key);
+        didDrag=true;
+        plane.dataset.bowDragUntil=String(Date.now()+500);
         const r=plane.getBoundingClientRect(), c=geometry.curves.find(c=>c.key===key)!;
         const dx=(e.clientX-dragStart.x)*width/r.width,dy=(e.clientY-dragStart.y)*height/r.height;
         bows={...bows,[key]:clampBow(dragStart.bow+(dx*c.normal.x+dy*c.normal.y)/(c.length||1))};
+    }
+    function suppressClickThroughRelease(key:Side) {
+        suppressClick=key;
+        const clear=()=>setTimeout(()=>{if(suppressClick===key)suppressClick=null;},350);
+        window.addEventListener('pointerup',clear,{once:true});
+        window.addEventListener('pointercancel',clear,{once:true});
+    }
+    function pointerdown(e:PointerEvent,key:Side) {
+        e.preventDefault();e.stopPropagation();
+        const wasActive=activeSide===key;
+        e.currentTarget.focus({preventScroll:true});
+        if(!wasActive) {
+            onpointeractivate(key);
+            suppressClickThroughRelease(key);
+            return;
+        }
+        dragging=key;didDrag=false;dragStart={x:e.clientX,y:e.clientY,bow:bows[key]};
+        window.addEventListener('pointermove',windowMove);
+        window.addEventListener('pointerup',pointerup,{once:true});
+        window.addEventListener('pointercancel',pointercancel,{once:true});
+    }
+    function windowMove(e:PointerEvent) {
+        if(dragging) move(e,dragging);
+    }
+    function clearWindowDragListeners() {
+        window.removeEventListener('pointermove',windowMove);
+        window.removeEventListener('pointerup',pointerup);
+        window.removeEventListener('pointercancel',pointercancel);
+    }
+    function pointerup() {
+        const key=dragging;
+        const completedDrag=didDrag;
+        dragging=null;
+        clearWindowDragListeners();
+        // The browser dispatches click after pointerup. Keep this flag through
+        // that click even if updating the bow rerenders the handle.
+        setTimeout(()=>{didDrag=false;},0);
+        // Bow updates can replace the actual button before its synthesized
+        // click. Restore the dragged side after that click has finished.
+        if(completedDrag && key) setTimeout(()=>onactivate(key),0);
+    }
+    function pointercancel() {
+        dragging=null;didDrag=false;
+        clearWindowDragListeners();
+    }
+    function click(e:MouseEvent,key:Side) {
+        e.stopPropagation();
+        if(didDrag) {didDrag=false;return;}
+        if(suppressClick===key) {suppressClick=null;return;}
+        onselect(key);
     }
     function keydown(e:KeyboardEvent,key:Side) {
         if(e.key==='Enter'||e.key===' ') {e.preventDefault();e.stopPropagation();onselect(key);return;}
@@ -36,11 +92,10 @@
         {/each}
     </svg>
     {#each geometry.curves as c}
-        <button type="button" class="bow-handle" class:selected={activeSide===c.key} aria-pressed={activeSide===c.key} onfocus={()=>onselect(c.key)} aria-label={`Adjust ${c.key} edge bow`} title={`${c.key} bow: drag inward/outward. Arrow keys adjust; Home clears.`}
+        <button type="button" class="bow-handle" class:selected={activeSide===c.key} aria-pressed={activeSide===c.key} onfocus={()=>onactivate(c.key)} aria-label={`Adjust ${c.key} edge bow`} title={`${c.key} bow: drag inward/outward. Arrow keys adjust; Home clears.`}
             style:left={`${100*c.handle.x/width}%`} style:top={`${100*c.handle.y/height}%`} style:transform={`translate(-50%,-50%) scale(${1/zoom})`}
-            onclick={(e)=>{e.stopPropagation();onselect(c.key);}}
-            onpointerdown={(e)=>{e.preventDefault();e.stopPropagation();dragging=c.key;dragStart={x:e.clientX,y:e.clientY,bow:bows[c.key]};onselect(c.key);e.currentTarget.focus({preventScroll:true});e.currentTarget.setPointerCapture(e.pointerId);}}
-            onpointermove={(e)=>move(e,c.key)} onpointerup={()=>dragging=null} onpointercancel={()=>dragging=null} onlostpointercapture={()=>dragging=null}
+            onclick={(e)=>click(e,c.key)}
+            onpointerdown={(e)=>pointerdown(e,c.key)}
             onkeydown={(e)=>keydown(e,c.key)}>
             <span class="bow-midpoint" aria-hidden="true"></span>
             <span class="bow-arrow-position" style:transform={`translate(-50%,-50%) translate(${c.normal.x*20}px,${c.normal.y*20}px) rotate(${Math.atan2(c.normal.y,c.normal.x)*180/Math.PI-90}deg)`}>
