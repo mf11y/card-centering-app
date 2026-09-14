@@ -233,6 +233,7 @@ const inputController = createInputController({
 	let displayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
 	let warpContainerEl = $state.raw<HTMLDivElement | null>(null);
 	let warpDisplayedImageRect = $state({ x: 0, y: 0, width: 1, height: 1 });
+	let warpImageSize = $state({ width: 63, height: 88 });
 	let sourceFocusTrapEl = $state.raw<HTMLDivElement | null>(null);
 	let warpScreenshotEl = $state.raw<HTMLDivElement | null>(null);
 
@@ -819,6 +820,13 @@ const inputController = createInputController({
 			height
 		};
 	}
+	function handleWarpImageLoad(event: Event) {
+		const image = event.currentTarget as HTMLImageElement;
+		if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+			warpImageSize = { width: image.naturalWidth, height: image.naturalHeight };
+		}
+		updateWarpDisplayedImageRect();
+	}
 
 	/**
 	 * Derived overlay measurements and corner-magnifier visibility.
@@ -829,6 +837,25 @@ const inputController = createInputController({
 	const bottomPx = $derived((guideInsetsPct.bottom / 100) * warpDisplayedImageRect.height);
 	const leftPx = $derived((guideInsetsPct.left / 100) * warpDisplayedImageRect.width);
 	const rightPx = $derived((guideInsetsPct.right / 100) * warpDisplayedImageRect.width);
+	function getSideZoomViewBox(side: GuideKey) {
+		const inset = Math.max(0.01, Math.min(99.99, guideInsetsPct[side]));
+		return side === 'top' || side === 'left'
+			? `0 0 100 ${inset}`
+			: `0 ${100 - inset} 100 ${inset}`;
+	}
+	function getSideZoomStyle(side: GuideKey) {
+		const cardWidth = Math.max(1, warpImageSize.width);
+		const cardHeight = Math.max(1, warpImageSize.height);
+		const insetFraction = Math.max(0.0001, Math.min(0.9999, guideInsetsPct[side] / 100));
+		const horizontal = side === 'top' || side === 'bottom';
+		const longDimension = horizontal ? cardWidth : cardHeight;
+		const thickness = (horizontal ? cardHeight : cardWidth) * insetFraction;
+
+		// One shared scale: corrected card height occupies the widened panel content width.
+		// Every slice starts at the same left edge; portrait top/bottom remain proportionally shorter.
+		const widthPercent = (longDimension / cardHeight) * 100;
+		return `width:${widthPercent}%; aspect-ratio:${longDimension} / ${thickness};`;
+	}
 
 	/**
 	 * Independent source/warp preview zoom, pan, and pinch helpers.
@@ -1126,6 +1153,7 @@ const inputController = createInputController({
 	function resetDerivedImageState() {
         curvedAssist = false; edgeBows = emptyBow();
 		warpedImageUrl = '';
+		warpImageSize = { width: 63, height: 88 };
 		segmentationMaskUrl = '';
 
 		sourceViewZoom = 1;
@@ -1769,6 +1797,7 @@ const inputController = createInputController({
 		if (warpContainerEl) {
 			resizeObserver.observe(warpContainerEl);
 		}
+
 	});
 
 	/**
@@ -1960,7 +1989,7 @@ const inputController = createInputController({
 
 		<main class="mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-6">
 			<!-- Main tool layout: adjustment panel, source preview, warp preview -->
-			<div class="grid w-full items-start gap-6 xl:grid-cols-[minmax(280px,420px)_minmax(0,525px)_minmax(0,525px)] xl:justify-center">
+			<div class="grid w-full items-start gap-6 xl:grid-cols-[minmax(280px,420px)_minmax(0,1074px)] xl:justify-center">
                 <button type="button" class="tutorial-tab" class:active={tutorialActive}
 						aria-pressed={tutorialActive} aria-label={tutorialActive ? 'Exit Tutorial Mode' : 'Start Tutorial Mode'}
 						onclick={() => tutorialActive = !tutorialActive}>
@@ -2570,8 +2599,9 @@ const inputController = createInputController({
 				</section>
 				</div>
 
+				<div class="grid min-w-0 items-start gap-6 xl:grid-cols-2">
 				<section
-					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="matched-preview-panel w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={displayedMapTarget?.type === 'corner' || displayedMapTarget?.type === 'bow'}
                     class:adjustments-disabled={controlsShowcaseRunning && displayedMapTarget?.type === 'guide'}
                     inert={controlsShowcaseRunning}
@@ -2607,7 +2637,7 @@ const inputController = createInputController({
 					</div>
 
 					<div
-						class="relative aspect-[5/7] w-full border border-transparent bg-zinc-950"
+						class="relative aspect-[5/7] w-full border border-transparent bg-zinc-950 xl:min-h-0 xl:flex-1 xl:aspect-auto"
 					>
 						<div
 							role="button"
@@ -3107,8 +3137,9 @@ const inputController = createInputController({
 </div>
 				</section>
 
+				<div class="flex min-w-0 flex-col gap-6">
 				<section
-					class="w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="matched-preview-panel w-full xl:max-w-[525px] justify-self-start self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={displayedMapTarget?.type === 'guide'}
                     class:adjustments-disabled={!controlsBaseReady || (controlsShowcaseRunning && displayedMapTarget?.type !== 'guide')} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}
         >
@@ -3161,7 +3192,7 @@ const inputController = createInputController({
 
 					<div
 						bind:this={warpScreenshotEl}
-						class={`flex flex-col gap-4 p-5 transition-colors duration-300 ${
+						class={`flex flex-col gap-4 p-5 transition-colors duration-300 xl:min-h-0 xl:flex-1 ${
 							isDark ? 'bg-zinc-900 text-zinc-100' : 'bg-white text-zinc-900'
 						}`}
 					>
@@ -3299,12 +3330,12 @@ const inputController = createInputController({
 						</div>
 
 						<!-- Warp Image -->
-						<div class="flex w-full items-center justify-start xl:justify-center">
+						<div class="flex w-full items-center justify-start xl:min-h-0 xl:flex-1 xl:justify-center">
 							<div
 								role="button"
 								tabindex="0"
 								aria-label="Clear active selection"
-								class="relative aspect-[63/88] w-full xl:w-full touch-none overflow-hidden border-0 bg-zinc-950 focus:outline-none"
+								class="relative aspect-[63/88] w-full touch-none overflow-hidden border-0 bg-zinc-950 focus:outline-none xl:h-full xl:w-auto xl:max-w-full"
 								bind:this={warpContainerEl}
 								data-focus-trap="warp"
 								data-tour="warp"
@@ -3336,7 +3367,7 @@ const inputController = createInputController({
 												alt="Warped preview"
 												class="absolute inset-0 h-full w-full object-cover"
 												style:filter={getWarpEnhanceFilter()}
-												onload={() => updateWarpDisplayedImageRect()}
+										onload={handleWarpImageLoad}
 												draggable="false"
 											/>
 											<div
@@ -3868,6 +3899,52 @@ const inputController = createInputController({
 								</div>
 </div>
 				</section>
+				</div>
+
+				<section
+					class="hidden w-full justify-self-start self-start flex-col border border-zinc-800 bg-zinc-900 shadow-sm xl:col-span-2 xl:flex"
+					class:adjustments-disabled={!controlsBaseReady}
+					aria-label="Selected side zoom"
+				>
+					<div class="panel-brackets border-b border-zinc-800 px-5 py-4">
+						<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Sides Zoomed</h2>
+						<p class="text-xs text-zinc-500">All guide-to-edge slices</p>
+					</div>
+
+					<div class="px-3 py-5 sm:px-4">
+						{#if warpedImageUrl}
+							<div class="space-y-4">
+								{#each sides as side}
+									<div>
+										<div class="mb-2 flex items-center justify-between text-xs font-medium tracking-wide uppercase">
+											<span class="text-zinc-400" class:side-zoom-label-active={selectedTarget?.type === 'guide' && selectedTarget.key === side}>{side}</span>
+											<span class="font-mono text-cyan-300">{guideInsetsPct[side].toFixed(2)}%</span>
+										</div>
+										<div class="w-full bg-zinc-950/40">
+											<svg
+												class="side-zoom-preview shrink-0 border border-zinc-700 bg-zinc-950"
+												class:side-zoom-preview-active={selectedTarget?.type === 'guide' && selectedTarget.key === side}
+												style={getSideZoomStyle(side)}
+												viewBox={getSideZoomViewBox(side)}
+												preserveAspectRatio="none"
+												role="img"
+												aria-label={`Zoomed ${side} guide-to-edge slice`}
+											>
+												<image href={warpedImageUrl} x="0" y="0" width="100" height="100" preserveAspectRatio="none" transform={side === 'left' || side === 'right' ? 'rotate(90 50 50)' : undefined} style:filter={getWarpEnhanceFilter()} />
+												<line x1="0" y1={side === 'top' || side === 'left' ? guideInsetsPct[side] : 100 - guideInsetsPct[side]} x2="100" y2={side === 'top' || side === 'left' ? guideInsetsPct[side] : 100 - guideInsetsPct[side]} />
+											</svg>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<div class="flex aspect-[4/3] items-center justify-center border border-zinc-800 bg-zinc-950 px-6 text-center text-sm text-zinc-500">
+								Upload an image to inspect its sides
+							</div>
+						{/if}
+					</div>
+				</section>
+				</div>
 			</div>
 		</main>
 
@@ -3894,6 +3971,12 @@ const inputController = createInputController({
 </div>
 
 <style>
+	@media (min-width: 80rem) {
+		.matched-preview-panel {
+			height: clamp(682px, calc(110vh - 198px), 902px);
+		}
+	}
+
     .panel-brackets {
         position: relative;
     }
@@ -4108,6 +4191,22 @@ const inputController = createInputController({
 		box-shadow:
 			inset 0 0 0 1px rgb(255 255 255 / 6%),
 			inset 0 1px 0 rgb(255 255 255 / 7%);
+	}
+
+	.side-zoom-preview line {
+		stroke: #f87171;
+		stroke-width: 2;
+		vector-effect: non-scaling-stroke;
+	}
+
+	.side-zoom-label-active {
+		color: var(--instrument-accent);
+		text-shadow: 0 0 8px color-mix(in srgb, var(--instrument-accent) 55%, transparent);
+	}
+
+	.side-zoom-preview-active {
+		border-color: var(--instrument-accent);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--instrument-accent) 45%, transparent);
 	}
 
 	@keyframes -global-arrow-breathe {
