@@ -2610,29 +2610,28 @@ const inputController = createInputController({
 						<div>
 							<h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase">Source Panel</h2>
 							<p class="text-xs text-zinc-500">Original image with corner overlay</p>
-                            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
-                                <label class="curved-assist-toggle">
-                                    <input type="checkbox" role="switch" bind:checked={curvedAssist} />
-                                    <span class="curved-assist-track" aria-hidden="true"><span></span></span>
-                                    <span>Curved Edge Assist</span>
-                                </label>
-                                <button type="button" popovertarget="curved-assist-help" popovertargetaction="show" aria-label="About Curved Edge Assist"
-                                    onpointerenter={(e)=>{if(e.pointerType==='mouse')openCurvedHelp();}} onpointerleave={(e)=>{if(e.pointerType==='mouse')closeCurvedHelpSoon();}}
-                                    onfocus={openCurvedHelp} onblur={closeCurvedHelpSoon} class="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-600 text-xs text-zinc-300 hover:border-cyan-400 hover:text-cyan-300">?</button>
-                                {#if curvedAssist}<button type="button" class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300" onclick={()=>edgeBows=emptyBow()}>Reset bows</button>{/if}
-                            </div>
-                            <div id="curved-assist-help" role="dialog" aria-label="Curved Edge Assist help" popover="auto" ontoggle={positionCurvedHelp} class="curved-assist-help"
-                                onpointerenter={()=>clearTimeout(curvedHelpTimer)} onpointerleave={closeCurvedHelpSoon}>
-                                <div class="mb-3 flex items-center justify-between gap-3">
-                                    <strong>Curved Edge Assist</strong>
-                                    <button type="button" popovertarget="curved-assist-help" popovertargetaction="hide" aria-label="Close curved edge help" class="rounded border border-zinc-600 px-2 py-1">Close</button>
-                                </div>
-                                <p>Drag an edge arrow to fit a mild bow. The cyan outline is the fitted edge mapped to the rectangular WARP. Select an edge arrow, then drag or nudge it with the directional pad. <span class="hidden xl:inline">Keyboard: WASD or arrow keys.</span> Step Size controls each nudge. Review inner guides after changing the bow; manual guides stay where you placed them.</p>
-                            </div>
-                            {#if curvedAssist}
-                                {#if curvedFallback}<p role="status" class="mt-2 text-xs text-amber-300">Curve mapping was unsafe; showing the normal perspective warp.</p>{/if}
-
-                            {/if}
+							{#if curvedAssist}
+								{#if curvedFallback}<p role="status" class="mt-2 text-xs text-amber-300">Curve mapping was unsafe; showing the normal perspective warp.</p>{/if}
+							{/if}
+						</div>
+						<div class="ml-4 flex flex-wrap items-center justify-end gap-2 text-xs text-zinc-300" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+							<label class="curved-assist-toggle">
+								<input type="checkbox" role="switch" bind:checked={curvedAssist} />
+								<span class="curved-assist-track" aria-hidden="true"><span></span></span>
+								<span>Curved Edge Assist</span>
+							</label>
+							<button type="button" popovertarget="curved-assist-help" popovertargetaction="show" aria-label="About Curved Edge Assist"
+								onpointerenter={(e)=>{if(e.pointerType==='mouse')openCurvedHelp();}} onpointerleave={(e)=>{if(e.pointerType==='mouse')closeCurvedHelpSoon();}}
+								onfocus={openCurvedHelp} onblur={closeCurvedHelpSoon} class="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-600 text-xs text-zinc-300 hover:border-cyan-400 hover:text-cyan-300">?</button>
+							{#if curvedAssist}<button type="button" class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300" onclick={()=>edgeBows=emptyBow()}>Reset bows</button>{/if}
+						</div>
+						<div id="curved-assist-help" role="dialog" aria-label="Curved Edge Assist help" popover="auto" ontoggle={positionCurvedHelp} class="curved-assist-help"
+							onpointerenter={()=>clearTimeout(curvedHelpTimer)} onpointerleave={closeCurvedHelpSoon}>
+							<div class="mb-3 flex items-center justify-between gap-3">
+								<strong>Curved Edge Assist</strong>
+								<button type="button" popovertarget="curved-assist-help" popovertargetaction="hide" aria-label="Close curved edge help" class="rounded border border-zinc-600 px-2 py-1">Close</button>
+							</div>
+							<p>Drag an edge arrow to fit a mild bow. The cyan outline is the fitted edge mapped to the rectangular WARP. Select an edge arrow, then drag or nudge it with the directional pad. <span class="hidden xl:inline">Keyboard: WASD or arrow keys.</span> Step Size controls each nudge. Review inner guides after changing the bow; manual guides stay where you placed them.</p>
 						</div>
 					</div>
 
