@@ -837,6 +837,7 @@ const inputController = createInputController({
 	const bottomPx = $derived((guideInsetsPct.bottom / 100) * warpDisplayedImageRect.height);
 	const leftPx = $derived((guideInsetsPct.left / 100) * warpDisplayedImageRect.width);
 	const rightPx = $derived((guideInsetsPct.right / 100) * warpDisplayedImageRect.width);
+	const zoomSideOrder = ['top', 'bottom', 'left', 'right'] as const;
 	function getSideZoomViewBox(side: GuideKey) {
 		const inset = Math.max(0.01, Math.min(99.99, guideInsetsPct[side]));
 		return side === 'top' || side === 'left'
@@ -851,9 +852,10 @@ const inputController = createInputController({
 		const longDimension = horizontal ? cardWidth : cardHeight;
 		const thickness = (horizontal ? cardHeight : cardWidth) * insetFraction;
 
-		// One shared scale: corrected card height occupies the widened panel content width.
-		// Every slice starts at the same left edge; portrait top/bottom remain proportionally shorter.
-		const widthPercent = (longDimension / cardHeight) * 100;
+		// Keep the proportional slice geometry while giving the shorter horizontal windows
+		// more of the wide two-panel inspection area.
+		const horizontalWindowScale = horizontal ? 1.25 : 1;
+		const widthPercent = (longDimension / cardHeight) * horizontalWindowScale * 100;
 		return `width:${widthPercent}%; aspect-ratio:${longDimension} / ${thickness};`;
 	}
 
@@ -3913,7 +3915,7 @@ const inputController = createInputController({
 					<div class="px-3 py-5 sm:px-4">
 						{#if warpedImageUrl}
 							<div class="space-y-4">
-								{#each sides as side}
+								{#each zoomSideOrder as side}
 									<div>
 										<div class="mb-2 flex items-center justify-between text-xs font-medium tracking-wide uppercase">
 											<span class="text-zinc-400" class:side-zoom-label-active={selectedTarget?.type === 'guide' && selectedTarget.key === side}>{side}</span>
