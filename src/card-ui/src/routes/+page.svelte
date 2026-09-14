@@ -64,12 +64,13 @@
     let uploadGeneration = 0;
 	import { html2canvas } from 'html2canvas-pro';
 	import { onMount, onDestroy, tick, untrack } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
 	import type { Quad } from '../lib/card-centering/geometry';
 	import { guessInnerBorders } from '../lib/card-centering/inner-border';
 	import { warpImageToDataUrl } from '../lib/card-centering/warp';
 	import { ALERT_THRESHOLD, cornerOverlayItems } from '../lib/card-centering/constants';
-	import { inferCorners, preloadInferenceModel } from '../lib/card-centering/api';
+	import { inferCorners, isInferenceModelReady, preloadInferenceModel, type InferenceProgressStage } from '../lib/card-centering/api';
 	import { getCenteringStats, type GuideKey } from '../lib/card-centering/centering';
 
 	import { createInputController, type Direction } from '../lib/card-centering/controller';
@@ -132,6 +133,32 @@ const inputController = createInputController({
 	let warpedImageUrl = $state('');
 	let segmentationMaskUrl = $state('');
 	let isSegmenting = $state(false);
+	let processingStage = $state<InferenceProgressStage | 'uploading' | 'idle' | 'complete' | 'error'>('idle');
+	let processingProgress = $state(0);
+	let processingProgressTimer: ReturnType<typeof setInterval> | null = null;
+	const processingStageLabel = $derived(processingStage === 'uploading' ? 'Uploading image…' : processingStage === 'loading-model' ? 'Loading model…' : 'Running inference…');
+
+	function stopProcessingProgressTimer() {
+		if (processingProgressTimer) clearInterval(processingProgressTimer);
+		processingProgressTimer = null;
+	}
+	function resetProcessingProgress() {
+		stopProcessingProgressTimer();
+		processingStage = 'idle';
+		processingProgress = 0;
+	}
+	function setProcessingProgress(stage: InferenceProgressStage | 'uploading' | 'complete', progress: number, generation: number) {
+		if (generation !== uploadGeneration) return;
+		stopProcessingProgressTimer();
+		processingStage = stage;
+		processingProgress = Math.max(processingProgress, Math.min(progress, stage === 'complete' ? 100 : 98));
+		const cap = stage === 'uploading' ? 18 : stage === 'loading-model' ? 28 : stage === 'inference' ? 72 : 0;
+		if (cap) processingProgressTimer = setInterval(() => {
+			if (generation !== uploadGeneration || (!isSegmenting && !actionRowBusy)) return stopProcessingProgressTimer();
+			const remaining = cap - processingProgress;
+			if (remaining > 0) processingProgress = Math.min(cap, processingProgress + Math.max(0.15, remaining * 0.04));
+		}, 120);
+	}
 
 	/**
 	 * Core adjustment state for corners, guides, and current selection.
@@ -1143,6 +1170,7 @@ const inputController = createInputController({
 	}
 	function resetHandler() {
         uploadGeneration++;
+		resetProcessingProgress();
         cancelControlsShowcase();
         activeUploadCache = null;
 		revokeWorkingUrls();
@@ -1150,6 +1178,7 @@ const inputController = createInputController({
 		imageFile = null;
 		imageUrl = '';
 		actionRowBusy = false;
+		isSegmenting = false;
 
 		resetDerivedImageState();
 		resetAdjustmentState();
@@ -1177,6 +1206,7 @@ const inputController = createInputController({
 
 		actionRowBusy = true;
         const generation = ++uploadGeneration;
+		setProcessingProgress('uploading', 2, generation);
         const cached = await lookupRecentUpload(file);
         if (generation !== uploadGeneration) return;
         activeUploadCache = cached;
@@ -1192,6 +1222,8 @@ const inputController = createInputController({
 
 		try {
 			actionRowBusy = true;
+			const generation = ++uploadGeneration;
+			setProcessingProgress('uploading', 2, generation);
             prepareControlsShowcase();
 			const response = await fetch('/tryme.webp');
 
@@ -1210,6 +1242,7 @@ const inputController = createInputController({
 			loadFile(file);
 		} catch (error) {
 			actionRowBusy = false;
+			resetProcessingProgress();
 			console.error('Failed to load Try Me image:', error);
 		}
 	}
@@ -1344,10 +1377,14 @@ const inputController = createInputController({
         const generation = uploadGeneration;
         const cached = activeUploadCache;
 		isSegmenting = true;
+		setProcessingProgress(isInferenceModelReady() ? 'preprocessing' : 'loading-model', isInferenceModelReady() ? 30 : 4, generation);
 
 		try {
             reportCacheInference(cached?.result ? 'reused' : 'rerun');
-			const result = cached?.result ?? await inferCorners(file);
+			if (cached?.result) setProcessingProgress('finalizing', 90, generation);
+			const result = cached?.result ?? await inferCorners(file, {
+				onProgress: ({ stage, progress }) => setProcessingProgress(stage, progress, generation)
+			});
             if (generation !== uploadGeneration || file !== imageFile) return;
 
 			if (segmentationMaskUrl?.startsWith('blob:')) {
@@ -1383,12 +1420,19 @@ const inputController = createInputController({
 					applyInitialSourceZoomToCorners();
 				});
 			}
+			setProcessingProgress('complete', 100, generation);
+			await new Promise((resolve) => setTimeout(resolve, 180));
 		} catch (error) {
 			console.error(error);
+			if (generation === uploadGeneration) processingStage = 'error';
 		} finally {
-			isSegmenting = false;
-			imageReadyForControls = true;
-			actionRowBusy = false;
+			if (generation === uploadGeneration && file === imageFile) {
+				stopProcessingProgressTimer();
+				isSegmenting = false;
+				imageReadyForControls = true;
+				actionRowBusy = false;
+				resetProcessingProgress();
+			}
 		}
 	}
 	async function handleSourceImageLoad() {
@@ -1866,6 +1910,7 @@ const inputController = createInputController({
 
 	onDestroy(() => {
         cancelControlsShowcase();
+		resetProcessingProgress();
 		if (imageUrl) URL.revokeObjectURL(imageUrl);
 
 		if (warpedImageUrl?.startsWith('blob:')) {
@@ -2603,6 +2648,18 @@ const inputController = createInputController({
                                 {#if !imageUrl}
                                     <div class="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Upload an image</div>
                                 {/if}
+								{#if processingStage !== 'idle' && (actionRowBusy || isSegmenting)}
+									<div out:fade={{ duration: 450 }} class="pointer-events-none absolute inset-x-6 top-1/2 z-30 -translate-y-1/2 border border-zinc-700 bg-zinc-950/90 px-4 py-4 shadow-lg backdrop-blur-sm sm:inset-x-10" aria-live="polite">
+										<div class="mb-3 flex items-center justify-between gap-4">
+											<strong class="text-sm font-semibold tracking-wide text-zinc-200 uppercase">Analyzing card</strong>
+											<span class="font-mono text-xs tabular-nums text-cyan-300">{Math.round(processingProgress)}%</span>
+										</div>
+										<div role="progressbar" aria-label="Card analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(processingProgress)} aria-valuetext={`${processingStageLabel} ${Math.round(processingProgress)}%`} class="h-2 overflow-hidden border border-zinc-700 bg-zinc-900">
+											<div class="h-full bg-cyan-400 transition-[width] duration-200 ease-out motion-reduce:transition-none" style:width={`${processingProgress}%`}></div>
+										</div>
+										<p class="mt-3 font-mono text-xs text-zinc-400">{processingStageLabel}</p>
+									</div>
+								{/if}
 								{#if imageUrl}
 									<div
 										class={`absolute inset-0 touch-none transition-opacity duration-300 ${
@@ -2796,20 +2853,6 @@ const inputController = createInputController({
 										</div>
 									</div>
 
-									{#if !warpedImageUrl}
-										<div
-											class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-zinc-950 px-6 text-center"
-										>
-											<div>
-												<div class="mb-2 text-sm font-medium text-zinc-300">
-													{isSegmenting ? 'Finding best quadrilateral…' : 'Preparing detection…'}
-												</div>
-												<div class="text-xs text-zinc-500">
-													The source preview will appear when detection is complete.
-												</div>
-											</div>
-										</div>
-									{/if}
 								{/if}
 							</div>
 						</div>

@@ -44,6 +44,15 @@ export type OuterInferenceDiagnostic = InferenceResize & {
 
 let runtimePromise: Promise<typeof import('onnxruntime-web/webgpu')> | null = null;
 let sessionPromise: Promise<Ort.InferenceSession> | null = null;
+let sessionReady = false;
+
+export type InferenceProgressStage = 'loading-model' | 'preprocessing' | 'inference' | 'mask-processing' | 'geometry' | 'finalizing';
+export type InferenceProgress = { stage: InferenceProgressStage; progress: number };
+
+/** Returns true only after the shared ONNX session has finished initializing. */
+export function isInferenceModelReady() {
+	return sessionReady;
+}
 
 /**
  * Loads and caches the browser-only ONNX Runtime bundle.
@@ -85,9 +94,13 @@ async function getSession() {
 				graphOptimizationLevel: 'all'
 			});
 		})();
-		sessionPromise = pendingSession;
+		const readySession = pendingSession.then((session) => {
+			sessionReady = true;
+			return session;
+		});
+		sessionPromise = readySession;
 		pendingSession.catch(() => {
-			if (sessionPromise === pendingSession) sessionPromise = null;
+			if (sessionPromise === readySession) sessionPromise = null;
 		});
 	}
 
@@ -305,20 +318,24 @@ function buildMaskDataUrl(
  * @returns The mask, confidence, ordered corners, refinement score, and fit metrics.
  * @throws If the image/model cannot be processed or no card detection meets the confidence threshold.
  */
-export async function inferCorners(file: File, options?: { outerLanczosUpscale?: boolean }) {
+export async function inferCorners(file: File, options?: { outerLanczosUpscale?: boolean; onProgress?: (value: InferenceProgress) => void }) {
 	const totalStarted = performance.now();
+	options?.onProgress?.({ stage: sessionReady ? 'preprocessing' : 'loading-model', progress: sessionReady ? 30 : 4 });
 	const [session, prepared] = await Promise.all([
 		getSession(),
 		preprocessImage(file, options?.outerLanczosUpscale ?? OUTER_LANCZOS_UPSCALE)
 	]);
+	options?.onProgress?.({ stage: 'inference', progress: 40 });
 	const inferenceStarted = performance.now();
 	const outputs = await session.run({ [session.inputNames[0]]: prepared.tensor });
 	const inferenceDurationMs = performance.now() - inferenceStarted;
+	options?.onProgress?.({ stage: 'mask-processing', progress: 75 });
 	const { detections, prototypes } = getModelOutputs(outputs);
 	const detection = getBestDetection(detections);
 	if (!detection) throw new Error('No card detected');
 
 	const inferenceMaskUrl = buildMaskDataUrl(prototypes, detection.coefficients, detection.box, prepared);
+	options?.onProgress?.({ stage: 'geometry', progress: 85 });
 	const fitted = await fitQuadFromMask(inferenceMaskUrl);
     // Mask fitting occurs in inference-image coordinates; map once before source-pixel refinement.
     const inferenceQuad = fitted.quad as Quad;
@@ -335,6 +352,7 @@ export async function inferCorners(file: File, options?: { outerLanczosUpscale?:
     }
     const ids = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
     const corners = refinement.refined.map((point,index)=>({id:ids[index],x:point.x,y:point.y}));
+	options?.onProgress?.({ stage: 'finalizing', progress: 96 });
 	let maskUrl = inferenceMaskUrl;
 	if (prepared.resize.applied) {
 		const maskBitmap = await createImageBitmap(await (await fetch(inferenceMaskUrl)).blob());
@@ -352,6 +370,7 @@ export async function inferCorners(file: File, options?: { outerLanczosUpscale?:
 			maskBitmap.close();
 		}
 	}
+	options?.onProgress?.({ stage: 'finalizing', progress: 98 });
 	const diagnostic: OuterInferenceDiagnostic = {
 		...prepared.resize,
 		resizeDurationMs: prepared.resizeDurationMs,

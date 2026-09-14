@@ -55,8 +55,23 @@ test('detector quad maps once before refinement receives the original file', () 
 });
 
 test('Try Me and uploads share inferCorners without preprocessing special cases', () => {
-	assert.match(pageSource, /const result = cached\?\.result \?\? await inferCorners\(file\)/);
+	assert.match(pageSource, /const result = cached\?\.result \?\? await inferCorners\(file, \{/);
 	assert.doesNotMatch(pageSource, /inferCorners\([^)]*tryme/i);
+});
+
+test('Source Panel progress is bounded, accessible, and generation guarded', () => {
+	assert.match(pageSource, /setProcessingProgress\('uploading', 2, generation\)/);
+	assert.match(pageSource, /processingStage === 'uploading' \? 'Uploading image…'/);
+	assert.match(apiSource, /progress: sessionReady \? 30 : 4/);
+	assert.match(apiSource, /stage: 'inference', progress: 40/);
+	assert.match(apiSource, /stage: 'mask-processing', progress: 75/);
+	assert.match(apiSource, /stage: 'geometry', progress: 85/);
+	assert.match(apiSource, /stage: 'finalizing', progress: 98/);
+	assert.match(pageSource, /stage === 'inference' \? 72/);
+	assert.match(pageSource, /generation !== uploadGeneration/);
+	assert.match(pageSource, /role="progressbar"/);
+	assert.match(pageSource, /aria-valuenow=\{Math\.round\(processingProgress\)\}/);
+	assert.match(pageSource, /onDestroy\(\(\) => \{[\s\S]*resetProcessingProgress\(\)/);
 });
 
 test('compatibility bump invalidates derived analysis while preserving original and duplicate hit', () => {
