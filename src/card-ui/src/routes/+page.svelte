@@ -312,6 +312,8 @@ const inputController = createInputController({
 	let imageReadyForControls = $state(false);
 	let resizeObserver: ResizeObserver;
 	let actionRowBusy = $state(false);
+    const RESET_TRANSITION_MS = 450;
+    let resetTransitioning = $state(false);
     const CONTROLS_SHOWCASE_KEY = 'card-centering-controls-showcase-v1';
     const CONTROLS_SHOWCASE_STEP_MS = 2016;
     const CONTROLS_SHOWCASE_LEAD_IN_MS = 400;
@@ -1198,10 +1200,18 @@ const inputController = createInputController({
 		const input = document.getElementById('image-upload') as HTMLInputElement | null;
 		if (input) input.value = '';
 	}
-	function resetHandler() {
+	async function resetHandler() {
+        if (resetTransitioning) return;
+        resetTransitioning = true;
         uploadGeneration++;
 		resetProcessingProgress();
         cancelControlsShowcase();
+        imageReadyForControls = false;
+        sourceImageVisible = false;
+
+        await tick();
+        await new Promise((resolve) => setTimeout(resolve, RESET_TRANSITION_MS));
+
         activeUploadCache = null;
 		revokeWorkingUrls();
 
@@ -1219,6 +1229,7 @@ const inputController = createInputController({
 		warpEnhanceMode = 'original';
 
 		clearUploadInput();
+		resetTransitioning = false;
 	}
 	function loadFile(file: File) {
 		if (!file.type.startsWith('image/')) return;
@@ -1989,7 +2000,7 @@ const inputController = createInputController({
 			</div>
 		</header>
 
-		<main class="mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-6">
+		<main class="mx-auto flex w-full flex-1 flex-col gap-6 px-6 py-6" class:reset-transitioning={resetTransitioning}>
 			<!-- Main tool layout: adjustment panel, source preview, warp preview -->
 			<div class="grid w-full items-start gap-6 xl:grid-cols-[minmax(280px,420px)_minmax(0,1074px)] xl:justify-center">
                 <button type="button" class="tutorial-tab" class:active={tutorialActive}
@@ -2057,7 +2068,7 @@ const inputController = createInputController({
 														document.getElementById('image-upload')?.click();
 													}
 												}}
-												disabled={actionRowBusy}
+												disabled={actionRowBusy || resetTransitioning}
 											>
 												{actionRowBusy || isSegmenting
 													? 'Running...'
@@ -2605,7 +2616,7 @@ const inputController = createInputController({
 				<section
 					class="controls-ready-transition matched-preview-panel w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={displayedMapTarget?.type === 'corner' || displayedMapTarget?.type === 'bow'}
-                    class:adjustments-disabled={controlsShowcaseRunning && displayedMapTarget?.type === 'guide'}
+					class:adjustments-disabled={resetTransitioning || (controlsShowcaseRunning && displayedMapTarget?.type === 'guide')}
                     inert={controlsShowcaseRunning}
 				>
 					<div class="panel-brackets flex items-center justify-between border-b border-zinc-800 px-5 py-4">
@@ -2741,9 +2752,10 @@ const inputController = createInputController({
 														bind:this={imageEl}
 														src={imageUrl}
 														alt="Uploaded source"
-														class={`block h-full w-full object-contain transition-opacity duration-500 ${
-															sourceImageVisible ? 'opacity-100' : 'opacity-0'
-														}`}
+													class={`block h-full w-full object-contain transition-opacity ${
+														sourceImageVisible ? 'opacity-100' : 'opacity-0'
+													}`}
+													style={`transition-duration:${resetTransitioning ? RESET_TRANSITION_MS : 500}ms`}
 														draggable="false"
 														ondragstart={(e) => e.preventDefault()}
 														onload={() => handleSourceImageLoad()}
@@ -3366,7 +3378,8 @@ const inputController = createInputController({
 											<img
 												src={warpedImageUrl}
 												alt="Warped preview"
-												class="absolute inset-0 h-full w-full object-cover"
+												class={`absolute inset-0 h-full w-full object-cover transition-opacity ${resetTransitioning ? 'opacity-0' : 'opacity-100'}`}
+												style={`transition-duration:${resetTransitioning ? RESET_TRANSITION_MS : 0}ms`}
 												style:filter={getWarpEnhanceFilter()}
 										onload={handleWarpImageLoad}
 												draggable="false"
@@ -4007,6 +4020,15 @@ const inputController = createInputController({
     }
     .controls-ready-transition.adjustments-disabled {
         transition-duration: 180ms;
+    }
+    .reset-transitioning .controls-ready-transition.adjustments-disabled {
+        transition-duration: 450ms;
+    }
+    .reset-transitioning svg:not(.tutorial-tab-icon) {
+        visibility: hidden;
+    }
+    .reset-transitioning [aria-label="Card controls mini map"] svg {
+        visibility: visible;
     }
     rect[aria-label="Deselect corners and edges"]:focus:not(:focus-visible),
     rect[aria-label="Clear mini-map selection"]:focus:not(:focus-visible) {
