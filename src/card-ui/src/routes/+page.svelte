@@ -2076,12 +2076,12 @@ const inputController = createInputController({
 						</div>
                 </section>
                 <section class="mt-6 flex w-full flex-col overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm" data-adjusting={controlsShowcaseRunning}>
-                    <div class="panel-brackets border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!controlsBaseReady}>
+                    <div class="controls-ready-transition panel-brackets border-b border-zinc-800 px-5 py-4" class:adjustments-disabled={!controlsBaseReady}>
                         <h2 class="text-sm font-semibold tracking-wide text-zinc-300 uppercase"><span class="hidden xl:inline">Adjustments</span><span class="xl:hidden">INSTRUCTIONS | ABOUT</span></h2>
                         <p class="hidden xl:block text-xs text-zinc-500">Use the directional pads to fine-tune corners (SOURCE PANEL) and inner guides (WARP PANEL).</p>
                     </div>
                     <div class="p-5">
-<div class="hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+<div class="controls-ready-transition hidden xl:block rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
 							<div class="mb-5 text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
 							</div>
@@ -2603,7 +2603,7 @@ const inputController = createInputController({
 
 				<div class="grid min-w-0 items-start gap-6 xl:grid-cols-2">
 				<section
-					class="matched-preview-panel w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="controls-ready-transition matched-preview-panel w-full xl:w-full justify-self-center self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={displayedMapTarget?.type === 'corner' || displayedMapTarget?.type === 'bow'}
                     class:adjustments-disabled={controlsShowcaseRunning && displayedMapTarget?.type === 'guide'}
                     inert={controlsShowcaseRunning}
@@ -2616,7 +2616,7 @@ const inputController = createInputController({
 								{#if curvedFallback}<p role="status" class="mt-2 text-xs text-amber-300">Curve mapping was unsafe; showing the normal perspective warp.</p>{/if}
 							{/if}
 						</div>
-						<div class="ml-4 flex flex-wrap items-center justify-end gap-2 text-xs text-zinc-300" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+						<div class="controls-ready-transition ml-4 flex flex-wrap items-center justify-end gap-2 text-xs text-zinc-300" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
 							<label class="curved-assist-toggle">
 								<input type="checkbox" role="switch" bind:checked={curvedAssist} />
 								<span class="curved-assist-track" aria-hidden="true"><span></span></span>
@@ -2889,7 +2889,7 @@ const inputController = createInputController({
 						</div>
 					</div>
 
-					<div class="block xl:hidden p-4" data-mobile-controls="source" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
+					<div class="controls-ready-transition block xl:hidden p-4" data-mobile-controls="source" class:adjustments-disabled={!controlsBaseReady} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}>
 						<div class="mb-3 flex items-center justify-between">
 							<div class="text-xs font-medium tracking-[0.2em] text-zinc-500 uppercase">
 								Card Controls MINI MAP
@@ -3140,7 +3140,7 @@ const inputController = createInputController({
 
 				<div class="flex min-w-0 flex-col gap-6">
 				<section
-					class="matched-preview-panel w-full xl:max-w-[525px] justify-self-start self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
+					class="controls-ready-transition matched-preview-panel w-full xl:max-w-[525px] justify-self-start self-start flex flex-col border border-zinc-800 bg-zinc-900 shadow-sm"
                     data-adjusting={displayedMapTarget?.type === 'guide'}
                     class:adjustments-disabled={!controlsBaseReady || (controlsShowcaseRunning && displayedMapTarget?.type !== 'guide')} inert={!adjustmentControlsReady} aria-disabled={!adjustmentControlsReady}
         >
@@ -3903,7 +3903,7 @@ const inputController = createInputController({
 				</div>
 
 				<section
-					class="hidden w-full justify-self-start self-start flex-col border border-zinc-800 bg-zinc-900 shadow-sm xl:col-span-2 xl:flex"
+					class="controls-ready-transition hidden w-full justify-self-start self-start flex-col border border-zinc-800 bg-zinc-900 shadow-sm xl:col-span-2 xl:flex"
 					class:adjustments-disabled={!controlsBaseReady}
 					aria-label="Selected side zoom"
 				>
@@ -4001,6 +4001,12 @@ const inputController = createInputController({
     .adjustments-disabled {
         opacity: 0.4;
         filter: grayscale(1);
+    }
+    .controls-ready-transition {
+        transition: opacity 900ms ease, filter 900ms ease;
+    }
+    .controls-ready-transition.adjustments-disabled {
+        transition-duration: 180ms;
     }
     rect[aria-label="Deselect corners and edges"]:focus:not(:focus-visible),
     rect[aria-label="Clear mini-map selection"]:focus:not(:focus-visible) {
