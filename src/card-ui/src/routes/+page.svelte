@@ -4104,10 +4104,10 @@ const inputController = createInputController({
 	}
 
 	.warp-guide-glass {
-		background: rgb(255 255 255 / 8%);
-		backdrop-filter: blur(1px) saturate(0.92) brightness(0.96);
-		-webkit-backdrop-filter: blur(1px) saturate(0.92) brightness(0.96);
-		box-shadow: inset 0 0 0 1px rgb(255 255 255 / 5%);
+		background: linear-gradient(135deg, rgb(255 255 255 / 10%), rgb(210 230 235 / 5%));
+		box-shadow:
+			inset 0 0 0 1px rgb(255 255 255 / 6%),
+			inset 0 1px 0 rgb(255 255 255 / 7%);
 	}
 
 	@keyframes -global-arrow-breathe {
