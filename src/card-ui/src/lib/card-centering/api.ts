@@ -18,11 +18,13 @@ import {
 	resizeRgbaLanczos,
 	type InferenceResize
 } from './inference-upscale';
+import {
+	planModelLetterbox,
+	resolveModelInputDimensions,
+	resolveSegmentationModelUrl,
+	type ModelInputDimensions
+} from './model-config';
 
-const MODEL_URL = '/models/card-segmentation.onnx';
-const MODEL_SIZE = 640;
-const PROTO_SIZE = 160;
-const MASK_CHANNELS = 32;
 const CONFIDENCE_THRESHOLD = 0.25;
 
 type PreprocessedImage = {
@@ -31,11 +33,15 @@ type PreprocessedImage = {
 	scale: number;
 	padX: number;
 	padY: number;
+	model: ModelInputDimensions;
 	resizeDurationMs: number;
 	preprocessDurationMs: number;
 };
 
 export type OuterInferenceDiagnostic = InferenceResize & {
+	modelUrl: string;
+	modelInputWidth: number;
+	modelInputHeight: number;
 	resizeDurationMs: number;
 	preprocessDurationMs: number;
 	inferenceDurationMs: number;
@@ -45,6 +51,7 @@ export type OuterInferenceDiagnostic = InferenceResize & {
 let runtimePromise: Promise<typeof import('onnxruntime-web/webgpu')> | null = null;
 let sessionPromise: Promise<Ort.InferenceSession> | null = null;
 let sessionReady = false;
+let activeModelUrl = '';
 
 export type InferenceProgressStage = 'loading-model' | 'preprocessing' | 'inference' | 'mask-processing' | 'geometry' | 'finalizing';
 export type InferenceProgress = { stage: InferenceProgressStage; progress: number };
@@ -78,9 +85,10 @@ async function getSession() {
 	if (!sessionPromise) {
 		const pendingSession = (async () => {
 			const ort = await getRuntime();
+			activeModelUrl = resolveSegmentationModelUrl(typeof location === 'undefined' ? '' : location.search);
 			if ('gpu' in navigator) {
 				try {
-					return await ort.InferenceSession.create(MODEL_URL, {
+					return await ort.InferenceSession.create(activeModelUrl, {
 						executionProviders: ['webgpu', 'wasm'],
 						graphOptimizationLevel: 'all'
 					});
@@ -89,7 +97,7 @@ async function getSession() {
 				}
 			}
 
-			return ort.InferenceSession.create(MODEL_URL, {
+			return ort.InferenceSession.create(activeModelUrl, {
 				executionProviders: ['wasm'],
 				graphOptimizationLevel: 'all'
 			});
@@ -125,7 +133,7 @@ export async function preloadInferenceModel() {
  * @param file - Source image selected by the user.
  * @returns Tensor input plus the dimensions and transform needed to restore original coordinates.
  */
-async function preprocessImage(file: File, lanczosUpscale = OUTER_LANCZOS_UPSCALE): Promise<PreprocessedImage> {
+async function preprocessImage(file: File, model: ModelInputDimensions, lanczosUpscale = OUTER_LANCZOS_UPSCALE): Promise<PreprocessedImage> {
 	if (!file.type.startsWith('image/')) throw new Error('File must be an image');
 
 	const preprocessStarted = performance.now();
@@ -168,26 +176,27 @@ async function preprocessImage(file: File, lanczosUpscale = OUTER_LANCZOS_UPSCAL
 			resizeDurationMs = performance.now() - resizeStarted;
 		}
 
-		const scale = Math.min(MODEL_SIZE / resize.inferenceWidth, MODEL_SIZE / resize.inferenceHeight);
-		const scaledWidth = Math.max(1, Math.round(resize.inferenceWidth * scale));
-		const scaledHeight = Math.max(1, Math.round(resize.inferenceHeight * scale));
-		const padX = Math.floor((MODEL_SIZE - scaledWidth) / 2);
-		const padY = Math.floor((MODEL_SIZE - scaledHeight) / 2);
+		const { scale, scaledWidth, scaledHeight, padX, padY } = planModelLetterbox(
+			resize.inferenceWidth,
+			resize.inferenceHeight,
+			model.width,
+			model.height
+		);
 		const canvas = document.createElement('canvas');
-		canvas.width = MODEL_SIZE;
-		canvas.height = MODEL_SIZE;
+		canvas.width = model.width;
+		canvas.height = model.height;
 
 		const context = canvas.getContext('2d', { willReadFrequently: true });
 		if (!context) throw new Error('Could not create inference canvas');
 
 		context.fillStyle = 'rgb(114, 114, 114)';
-		context.fillRect(0, 0, MODEL_SIZE, MODEL_SIZE);
+		context.fillRect(0, 0, model.width, model.height);
 		context.imageSmoothingEnabled = true;
 		context.imageSmoothingQuality = 'high';
 		context.drawImage(inferenceSource, padX, padY, scaledWidth, scaledHeight);
 
-		const rgba = context.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE).data;
-		const planeSize = MODEL_SIZE * MODEL_SIZE;
+		const rgba = context.getImageData(0, 0, model.width, model.height).data;
+		const planeSize = model.width * model.height;
 		const input = new Float32Array(planeSize * 3);
 		for (let pixel = 0; pixel < planeSize; pixel++) {
 			const rgbaOffset = pixel * 4;
@@ -197,11 +206,12 @@ async function preprocessImage(file: File, lanczosUpscale = OUTER_LANCZOS_UPSCAL
 		}
 
 		return {
-			tensor: new ort.Tensor('float32', input, [1, 3, MODEL_SIZE, MODEL_SIZE]),
+			tensor: new ort.Tensor('float32', input, [1, 3, model.height, model.width]),
 			resize,
 			scale,
 			padX,
 			padY,
+			model,
 			resizeDurationMs,
 			preprocessDurationMs: performance.now() - preprocessStarted
 		};
@@ -219,22 +229,17 @@ async function preprocessImage(file: File, lanczosUpscale = OUTER_LANCZOS_UPSCAL
  */
 function getModelOutputs(outputs: Ort.InferenceSession.ReturnType) {
 	const tensors = Object.values(outputs) as Ort.Tensor[];
+	const prototypes = tensors.find((tensor) => tensor.dims.length === 4 && Number(tensor.dims[1]) > 0);
+	const maskChannels = prototypes ? Number(prototypes.dims[1]) : 0;
 	const detections = tensors.find(
-		(tensor) => tensor.dims.length === 3 && tensor.dims[1] === 4 + 1 + MASK_CHANNELS
-	);
-	const prototypes = tensors.find(
-		(tensor) =>
-			tensor.dims.length === 4 &&
-			tensor.dims[1] === MASK_CHANNELS &&
-			tensor.dims[2] === PROTO_SIZE &&
-			tensor.dims[3] === PROTO_SIZE
+		(tensor) => tensor.dims.length === 3 && Number(tensor.dims[1]) === 4 + 1 + maskChannels
 	);
 
 	if (!detections || !prototypes) {
 		throw new Error('ONNX model returned unexpected output shapes');
 	}
 
-	return { detections, prototypes };
+	return { detections, prototypes, maskChannels };
 }
 
 /**
@@ -243,7 +248,7 @@ function getModelOutputs(outputs: Ort.InferenceSession.ReturnType) {
  * @param detections - YOLO detection tensor shaped `[1, 37, 8400]`.
  * @returns Best detection data, or `null` when no candidate reaches the confidence threshold.
  */
-function getBestDetection(detections: Ort.Tensor) {
+function getBestDetection(detections: Ort.Tensor, maskChannels: number) {
 	const data = detections.data as Float32Array;
 	const candidates = Number(detections.dims[2]);
 	let bestIndex = -1;
@@ -263,8 +268,8 @@ function getBestDetection(detections: Ort.Tensor) {
 	const centerY = data[candidates + bestIndex];
 	const width = data[candidates * 2 + bestIndex];
 	const height = data[candidates * 3 + bestIndex];
-	const coefficients = new Float32Array(MASK_CHANNELS);
-	for (let channel = 0; channel < MASK_CHANNELS; channel++) {
+	const coefficients = new Float32Array(maskChannels);
+	for (let channel = 0; channel < maskChannels; channel++) {
 		coefficients[channel] = data[(5 + channel) * candidates + bestIndex];
 	}
 
@@ -292,7 +297,7 @@ function buildMaskDataUrl(
     const values=prototypes.data as Float32Array;
     for(let i=0;i<plane;i++) {
         let value=0;
-        for(let c=0;c<MASK_CHANNELS;c++)value+=coefficients[c]*values[c*plane+i];
+        for(let c=0;c<coefficients.length;c++)value+=coefficients[c]*values[c*plane+i];
         logits[i]=value;
     }
     const {inferenceWidth:width,inferenceHeight:height}=prepared.resize;
@@ -321,17 +326,20 @@ function buildMaskDataUrl(
 export async function inferCorners(file: File, options?: { outerLanczosUpscale?: boolean; onProgress?: (value: InferenceProgress) => void }) {
 	const totalStarted = performance.now();
 	options?.onProgress?.({ stage: sessionReady ? 'preprocessing' : 'loading-model', progress: sessionReady ? 30 : 4 });
-	const [session, prepared] = await Promise.all([
-		getSession(),
-		preprocessImage(file, options?.outerLanczosUpscale ?? OUTER_LANCZOS_UPSCALE)
-	]);
+	const session = await getSession();
+	const model = resolveModelInputDimensions(session.inputMetadata);
+	const prepared = await preprocessImage(
+		file,
+		model,
+		options?.outerLanczosUpscale ?? OUTER_LANCZOS_UPSCALE
+	);
 	options?.onProgress?.({ stage: 'inference', progress: 40 });
 	const inferenceStarted = performance.now();
 	const outputs = await session.run({ [session.inputNames[0]]: prepared.tensor });
 	const inferenceDurationMs = performance.now() - inferenceStarted;
 	options?.onProgress?.({ stage: 'mask-processing', progress: 75 });
-	const { detections, prototypes } = getModelOutputs(outputs);
-	const detection = getBestDetection(detections);
+	const { detections, prototypes, maskChannels } = getModelOutputs(outputs);
+	const detection = getBestDetection(detections, maskChannels);
 	if (!detection) throw new Error('No card detected');
 
 	const inferenceMaskUrl = buildMaskDataUrl(prototypes, detection.coefficients, detection.box, prepared);
@@ -373,6 +381,9 @@ export async function inferCorners(file: File, options?: { outerLanczosUpscale?:
 	options?.onProgress?.({ stage: 'finalizing', progress: 98 });
 	const diagnostic: OuterInferenceDiagnostic = {
 		...prepared.resize,
+		modelUrl: activeModelUrl,
+		modelInputWidth: prepared.model.width,
+		modelInputHeight: prepared.model.height,
 		resizeDurationMs: prepared.resizeDurationMs,
 		preprocessDurationMs: prepared.preprocessDurationMs,
 		inferenceDurationMs,

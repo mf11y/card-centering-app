@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const MODEL_ASSETS = {
-    outer: 'static/models/card-segmentation.onnx',
+    outer640: 'static/models/card-segmentation-640.onnx',
+    outer960: 'static/models/card-segmentation-960.onnx',
     ranker: 'static/models/learned-inner-v1.bin'
 };
 /** @param {import("node:crypto").BinaryLike} bytes */
@@ -15,6 +16,9 @@ export function readModelFingerprints(root = fileURLToPath(new URL('../', import
         try { return [name, fingerprint(readFileSync(`${root}/${path}`))]; }
         catch (error) { throw new Error(`Cannot fingerprint required production ${name} asset: ${path}`, { cause: error }); }
     }));
+}
+function outerModelFingerprint(hashes) {
+    return fingerprint(`${hashes.outer640}:${hashes.outer960}`);
 }
 /** Vite invokes config for both dev and build; no checked-in hash can become stale. */
 export function modelFingerprintsPlugin() {
@@ -33,7 +37,7 @@ export function modelFingerprintsPlugin() {
         /** @param {string} id */
         load(id) {
             if (id === '\0production-model-fingerprints') {
-                return `export const OUTER_MODEL_ASSET_HASH = ${JSON.stringify(hashes.outer)}; export const LEARNED_RANKER_ASSET_HASH = ${JSON.stringify(hashes.ranker)};`;
+                return `export const OUTER_MODEL_ASSET_HASH = ${JSON.stringify(outerModelFingerprint(hashes))}; export const LEARNED_RANKER_ASSET_HASH = ${JSON.stringify(hashes.ranker)};`;
             }
         },
         generateBundle() {
