@@ -62,7 +62,7 @@
     import { lookupRecentUpload, saveRecentDetection, reportCacheInference, type UploadLookup } from '../lib/recent-upload-cache';
     let activeUploadCache: UploadLookup | null = null;
     let uploadGeneration = 0;
-	import { html2canvas } from 'html2canvas-pro';
+	import { renderWarpScreenshot } from '../lib/card-centering/screenshot';
 	import { onMount, onDestroy, tick, untrack } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { orderCorners, ensureClockwise } from '../lib/card-centering/geometry';
@@ -1505,7 +1505,7 @@ const inputController = createInputController({
 	 * - handleWarpTrapKeydown: traps Tab navigation within the warped-preview guide controls.
 	 * - miniMapFocusOrder / handleMiniMapTrapKeydown: define clockwise corner/side order and trap Tab
 	 *   navigation within the card-controls minimap while activating the newly focused target.
-	 * - captureWarpPanel: captures the warp preview area as a PNG image using html2canvas, downloads it,
+	 * - captureWarpPanel: renders the full warped card and measurements as a PNG image, downloads it,
 	 *   and revokes the temporary blob URL after export.
 	 */
 
@@ -1655,49 +1655,15 @@ const inputController = createInputController({
 	}
 
 	async function captureWarpPanel() {
-		if (!warpScreenshotEl) {
-			console.log('No warpScreenshotEl');
-			return;
-		}
+		if (!warpedImageUrl || !warpScreenshotEl || !warpContainerEl) return;
 
 		try {
-			const canvas = await html2canvas(warpScreenshotEl, {
-				backgroundColor: null,
-				scale: 2,
-				useCORS: true,
-				logging: false,
-				onclone: (clonedDocument) => {
-					// Canvas export does not reliably support masks or gradient-clipped text.
-					// Change only the detached export document, preserving the live animation.
-					const style = clonedDocument.createElement('style');
-					style.textContent = `
-						.centering-rgb-glow::before, .centering-rgb-glow::after {
-							content: none !important;
-							display: none !important;
-						}
-						.centering-rgb-glow {
-							animation: none !important;
-							background: #101014 !important;
-							border-color: #d946ef !important;
-							box-shadow: 0 0 12px rgba(168, 85, 247, 0.45) !important;
-						}
-						.centering-rgb-value {
-							animation: none !important;
-							background: none !important;
-							color: #e879f9 !important;
-							-webkit-text-fill-color: #e879f9 !important;
-							filter: none !important;
-							text-shadow: 0 0 3px rgba(217, 70, 239, 0.35) !important;
-						}
-						.warp-guide-glass {
-							display: none !important;
-						}
-					`;
-					clonedDocument.head.appendChild(style);
-					// html2canvas materializes pseudo-elements before invoking onclone.
-					clonedDocument.querySelectorAll('.centering-rgb-glow > html2canvaspseudoelement')
-						.forEach((overlay) => overlay.remove());
-				}
+			const canvas = await renderWarpScreenshot({
+				imageUrl: warpedImageUrl,
+				insets: { ...guideInsetsPct },
+				panel: warpScreenshotEl,
+				card: warpContainerEl,
+				filter: getWarpEnhanceFilter()
 			});
 
 			canvas.toBlob((blob) => {
